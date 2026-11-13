@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package depgraph
@@ -232,9 +232,9 @@ func depthFirstSearch(edges map[string][]string) func(s string) ([]string, error
 
 				nodeEdges := edges[node]
 
-				for i := len(nodeEdges) - 1; i >= 0; i-- {
+				for _, nodeEdge := range slices.Backward(nodeEdges) {
 					todo.Push(&todoValue{
-						node: nodeEdges[i],
+						node: nodeEdge,
 					})
 				}
 

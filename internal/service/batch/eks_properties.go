@@ -1,388 +1,344 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package batch
 
 import (
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/batch"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"cmp"
+	"slices"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awstypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
+	smithyjson "github.com/aws/smithy-go/encoding/json"
+	tfjson "github.com/hashicorp/terraform-provider-aws/internal/json"
+	tfslices "github.com/hashicorp/terraform-provider-aws/internal/slices"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
-const (
-	ImagePullPolicyAlways       = "Always"
-	ImagePullPolicyIfNotPresent = "IfNotPresent"
-	ImagePullPolicyNever        = "Never"
-)
+type eksProperties awstypes.EksProperties
 
-func ImagePullPolicy_Values() []string {
-	return []string{
-		ImagePullPolicyAlways,
-		ImagePullPolicyIfNotPresent,
-		ImagePullPolicyNever,
+func (ep *eksProperties) reduce() {
+	if ep.PodProperties == nil {
+		return
+	}
+	ep.orderContainers()
+	ep.orderEnvironmentVariables()
+
+	// Set all empty slices to nil.
+	if len(ep.PodProperties.Containers) == 0 {
+		ep.PodProperties.Containers = nil
+	} else {
+		for j, container := range ep.PodProperties.Containers {
+			if len(container.Args) == 0 {
+				container.Args = nil
+			}
+			if len(container.Command) == 0 {
+				container.Command = nil
+			}
+			if len(container.Env) == 0 {
+				container.Env = nil
+			}
+			if len(container.VolumeMounts) == 0 {
+				container.VolumeMounts = nil
+			}
+			ep.PodProperties.Containers[j] = container
+		}
+	}
+	if len(ep.PodProperties.InitContainers) == 0 {
+		ep.PodProperties.InitContainers = nil
+	} else {
+		for j, container := range ep.PodProperties.InitContainers {
+			if len(container.Args) == 0 {
+				container.Args = nil
+			}
+			if len(container.Command) == 0 {
+				container.Command = nil
+			}
+			if len(container.Env) == 0 {
+				container.Env = nil
+			}
+			if len(container.VolumeMounts) == 0 {
+				container.VolumeMounts = nil
+			}
+			ep.PodProperties.InitContainers[j] = container
+		}
+	}
+	if ep.PodProperties.DnsPolicy == nil {
+		ep.PodProperties.DnsPolicy = aws.String("ClusterFirst")
+	}
+	if ep.PodProperties.HostNetwork == nil {
+		ep.PodProperties.HostNetwork = aws.Bool(true)
+	}
+	if len(ep.PodProperties.Volumes) == 0 {
+		ep.PodProperties.Volumes = nil
+	}
+	if len(ep.PodProperties.ImagePullSecrets) == 0 {
+		ep.PodProperties.ImagePullSecrets = nil
 	}
 }
 
-const (
-	DNSPolicyDefault                 = "Default"
-	DNSPolicyClusterFirst            = "ClusterFirst"
-	DNSPolicyClusterFirstWithHostNet = "ClusterFirstWithHostNet"
-)
-
-func DNSPolicy_Values() []string {
-	return []string{
-		DNSPolicyDefault,
-		DNSPolicyClusterFirst,
-		DNSPolicyClusterFirstWithHostNet,
-	}
+func (ep *eksProperties) orderContainers() {
+	slices.SortFunc(ep.PodProperties.Containers, func(a, b awstypes.EksContainer) int {
+		return cmp.Compare(aws.ToString(a.Name), aws.ToString(b.Name))
+	})
 }
 
-func expandEKSPodProperties(podPropsMap map[string]interface{}) *batch.EksPodProperties {
-	podProps := &batch.EksPodProperties{}
-
-	if v, ok := podPropsMap["containers"]; ok {
-		containers := v.([]interface{})
-		podProps.Containers = expandContainers(containers)
-	}
-
-	if v, ok := podPropsMap["dns_policy"].(string); ok && v != "" {
-		podProps.DnsPolicy = aws.String(v)
-	}
-
-	if v, ok := podPropsMap["host_network"]; ok {
-		podProps.HostNetwork = aws.Bool(v.(bool))
-	}
-	if m, ok := podPropsMap["metadata"].([]interface{}); ok && len(m) > 0 {
-		if v, ok := m[0].(map[string]interface{})["labels"]; ok {
-			podProps.Metadata = &batch.EksMetadata{}
-			podProps.Metadata.Labels = flex.ExpandStringMap(v.(map[string]interface{}))
-		}
-	}
-	if v, ok := podPropsMap["service_account_name"].(string); ok && v != "" {
-		podProps.ServiceAccountName = aws.String(v)
-	}
-	if v, ok := podPropsMap["volumes"]; ok {
-		podProps.Volumes = expandVolumes(v.([]interface{}))
-	}
-
-	return podProps
-}
-
-func expandContainers(containers []interface{}) []*batch.EksContainer {
-	var result []*batch.EksContainer
-
-	for _, v := range containers {
-		containerMap := v.(map[string]interface{})
-		container := &batch.EksContainer{}
-
-		if v, ok := containerMap["args"]; ok {
-			container.Args = flex.ExpandStringList(v.([]interface{}))
-		}
-
-		if v, ok := containerMap["command"]; ok {
-			container.Command = flex.ExpandStringList(v.([]interface{}))
-		}
-
-		if v, ok := containerMap["env"].(*schema.Set); ok && v.Len() > 0 {
-			env := []*batch.EksContainerEnvironmentVariable{}
-			for _, e := range v.List() {
-				environment := &batch.EksContainerEnvironmentVariable{}
-				environ := e.(map[string]interface{})
-				if v, ok := environ[names.AttrName].(string); ok && v != "" {
-					environment.Name = aws.String(v)
-				}
-				if v, ok := environ[names.AttrValue].(string); ok && v != "" {
-					environment.Value = aws.String(v)
-				}
-				env = append(env, environment)
-			}
-			container.Env = env
-		}
-
-		if v, ok := containerMap["image"]; ok {
-			container.Image = aws.String(v.(string))
-		}
-		if v, ok := containerMap["image_pull_policy"].(string); ok && v != "" {
-			container.ImagePullPolicy = aws.String(v)
-		}
-
-		if v, ok := containerMap[names.AttrName].(string); ok && v != "" {
-			container.Name = aws.String(v)
-		}
-		if r, ok := containerMap[names.AttrResources].([]interface{}); ok && len(r) > 0 {
-			resources := &batch.EksContainerResourceRequirements{}
-			res := r[0].(map[string]interface{})
-			if v, ok := res["limits"]; ok {
-				resources.Limits = flex.ExpandStringMap(v.(map[string]interface{}))
-			}
-			if v, ok := res["requests"]; ok {
-				resources.Requests = flex.ExpandStringMap(v.(map[string]interface{}))
-			}
-			container.Resources = resources
-		}
-
-		if s, ok := containerMap["security_context"].([]interface{}); ok && len(s) > 0 {
-			securityContext := &batch.EksContainerSecurityContext{}
-			security := s[0].(map[string]interface{})
-			if v, ok := security["privileged"]; ok {
-				securityContext.Privileged = aws.Bool(v.(bool))
-			}
-			if v, ok := security["run_as_user"]; ok {
-				securityContext.RunAsUser = aws.Int64(int64(v.(int)))
-			}
-			if v, ok := security["run_as_group"]; ok {
-				securityContext.RunAsGroup = aws.Int64(int64(v.(int)))
-			}
-			if v, ok := security["read_only_root_file_system"]; ok {
-				securityContext.ReadOnlyRootFilesystem = aws.Bool(v.(bool))
-			}
-			if v, ok := security["run_as_non_root"]; ok {
-				securityContext.RunAsNonRoot = aws.Bool(v.(bool))
-			}
-			container.SecurityContext = securityContext
-		}
-		if v, ok := containerMap["volume_mounts"]; ok {
-			container.VolumeMounts = expandVolumeMounts(v.([]interface{}))
-		}
-
-		result = append(result, container)
-	}
-
-	return result
-}
-
-func expandVolumes(volumes []interface{}) []*batch.EksVolume {
-	var result []*batch.EksVolume
-	for _, v := range volumes {
-		volume := &batch.EksVolume{}
-		volumeMap := v.(map[string]interface{})
-		if v, ok := volumeMap[names.AttrName].(string); ok {
-			volume.Name = aws.String(v)
-		}
-		if e, ok := volumeMap["empty_dir"].([]interface{}); ok && len(e) > 0 {
-			if empty, ok := e[0].(map[string]interface{}); ok {
-				volume.EmptyDir = &batch.EksEmptyDir{
-					Medium:    aws.String(empty["medium"].(string)),
-					SizeLimit: aws.String(empty["size_limit"].(string)),
-				}
-			}
-		}
-		if h, ok := volumeMap["host_path"].([]interface{}); ok && len(h) > 0 {
-			volume.HostPath = &batch.EksHostPath{}
-			if host, ok := h[0].(map[string]interface{}); ok {
-				if v, ok := host[names.AttrPath]; ok {
-					volume.HostPath.Path = aws.String(v.(string))
-				}
-			}
-		}
-		if s, ok := volumeMap["secret"].([]interface{}); ok && len(s) > 0 {
-			volume.Secret = &batch.EksSecret{}
-			if secret := s[0].(map[string]interface{}); ok {
-				if v, ok := secret["secret_name"]; ok {
-					volume.Secret.SecretName = aws.String(v.(string))
-				}
-				if v, ok := secret["optional"]; ok {
-					volume.Secret.Optional = aws.Bool(v.(bool))
-				}
-			}
-		}
-		result = append(result, volume)
-	}
-
-	return result
-}
-
-func expandVolumeMounts(volumeMounts []interface{}) []*batch.EksContainerVolumeMount {
-	var result []*batch.EksContainerVolumeMount
-	for _, v := range volumeMounts {
-		volumeMount := &batch.EksContainerVolumeMount{}
-		volumeMountMap := v.(map[string]interface{})
-		if v, ok := volumeMountMap[names.AttrName]; ok {
-			volumeMount.Name = aws.String(v.(string))
-		}
-		if v, ok := volumeMountMap["mount_path"]; ok {
-			volumeMount.MountPath = aws.String(v.(string))
-		}
-		if v, ok := volumeMountMap["read_only"]; ok {
-			volumeMount.ReadOnly = aws.Bool(v.(bool))
-		}
-		result = append(result, volumeMount)
-	}
-
-	return result
-}
-
-func flattenEKSProperties(eksProperties *batch.EksProperties) []interface{} {
-	var eksPropertiesList []interface{}
-	if eksProperties == nil {
-		return eksPropertiesList
-	}
-	if v := eksProperties.PodProperties; v != nil {
-		eksPropertiesList = append(eksPropertiesList, map[string]interface{}{
-			"pod_properties": flattenEKSPodProperties(eksProperties.PodProperties),
+func (ep *eksProperties) orderEnvironmentVariables() {
+	for j, container := range ep.PodProperties.Containers {
+		// Remove environment variables with empty values.
+		container.Env = tfslices.Filter(container.Env, func(kvp awstypes.EksContainerEnvironmentVariable) bool {
+			return aws.ToString(kvp.Value) != ""
 		})
-	}
 
-	return eksPropertiesList
+		slices.SortFunc(container.Env, func(a, b awstypes.EksContainerEnvironmentVariable) int {
+			return cmp.Compare(aws.ToString(a.Name), aws.ToString(b.Name))
+		})
+
+		ep.PodProperties.Containers[j].Env = container.Env
+	}
 }
 
-func flattenEKSPodProperties(podProperties *batch.EksPodProperties) (tfList []interface{}) {
-	tfMap := make(map[string]interface{}, 0)
-	if v := podProperties.Containers; v != nil {
-		tfMap["containers"] = flattenEKSContainers(v)
+func equivalentEKSPropertiesJSON(str1, str2 string) (bool, error) {
+	if str1 == "" {
+		str1 = "{}"
 	}
 
-	if v := podProperties.DnsPolicy; v != nil {
-		tfMap["dns_policy"] = aws.StringValue(v)
+	if str2 == "" {
+		str2 = "{}"
 	}
 
-	if v := podProperties.HostNetwork; v != nil {
-		tfMap["host_network"] = aws.BoolValue(v)
+	var ep1 eksProperties
+	err := tfjson.DecodeFromString(str1, &ep1)
+	if err != nil {
+		return false, err
+	}
+	ep1.reduce()
+	b1, err := tfjson.EncodeToBytes(ep1)
+	if err != nil {
+		return false, err
 	}
 
-	if v := podProperties.Metadata; v != nil {
-		metaData := make([]map[string]interface{}, 0)
-		if v := v.Labels; v != nil {
-			metaData = append(metaData, map[string]interface{}{"labels": flex.FlattenStringMap(v)})
-		}
-		tfMap["metadata"] = metaData
+	var ep2 eksProperties
+	err = tfjson.DecodeFromString(str2, &ep2)
+	if err != nil {
+		return false, err
+	}
+	ep2.reduce()
+	b2, err := tfjson.EncodeToBytes(ep2)
+	if err != nil {
+		return false, err
 	}
 
-	if v := podProperties.ServiceAccountName; v != nil {
-		tfMap["service_account_name"] = aws.StringValue(v)
-	}
-
-	if v := podProperties.Volumes; v != nil {
-		tfMap["volumes"] = flattenEKSVolumes(v)
-	}
-
-	tfList = append(tfList, tfMap)
-	return tfList
+	return tfjson.EqualBytes(b1, b2), nil
 }
 
-func flattenEKSContainers(containers []*batch.EksContainer) (tfList []interface{}) {
-	for _, container := range containers {
-		tfMap := map[string]interface{}{}
+func serializeEKSProperties(v *awstypes.EksProperties, value smithyjson.Value) {
+	o := value.Object()
+	defer o.Close()
 
-		if v := container.Args; v != nil {
-			tfMap["args"] = flex.FlattenStringList(v)
-		}
-
-		if v := container.Command; v != nil {
-			tfMap["command"] = flex.FlattenStringList(v)
-		}
-
-		if v := container.Env; v != nil {
-			tfMap["env"] = flattenEKSContainerEnvironmentVariables(v)
-		}
-
-		if v := container.Image; v != nil {
-			tfMap["image"] = aws.StringValue(v)
-		}
-
-		if v := container.ImagePullPolicy; v != nil {
-			tfMap["image_pull_policy"] = aws.StringValue(v)
-		}
-
-		if v := container.Name; v != nil {
-			tfMap[names.AttrName] = aws.StringValue(v)
-		}
-
-		if v := container.Resources; v != nil {
-			tfMap[names.AttrResources] = []map[string]interface{}{{
-				"limits":   flex.FlattenStringMap(v.Limits),
-				"requests": flex.FlattenStringMap(v.Requests),
-			}}
-		}
-
-		if v := container.SecurityContext; v != nil {
-			tfMap["security_context"] = []map[string]interface{}{{
-				"privileged":                 aws.BoolValue(v.Privileged),
-				"run_as_user":                aws.Int64Value(v.RunAsUser),
-				"run_as_group":               aws.Int64Value(v.RunAsGroup),
-				"read_only_root_file_system": aws.BoolValue(v.ReadOnlyRootFilesystem),
-				"run_as_non_root":            aws.BoolValue(v.RunAsNonRoot),
-			}}
-		}
-
-		if v := container.VolumeMounts; v != nil {
-			tfMap["volume_mounts"] = flattenEKSContainerVolumeMounts(v)
-		}
-		tfList = append(tfList, tfMap)
+	if v.PodProperties != nil {
+		serializeEKSPodProperties(v.PodProperties, o.Key("podProperties"))
 	}
-
-	return tfList
 }
 
-func flattenEKSContainerEnvironmentVariables(env []*batch.EksContainerEnvironmentVariable) (tfList []interface{}) {
-	for _, e := range env {
-		tfMap := map[string]interface{}{}
+func serializeEKSPodProperties(v *awstypes.EksPodProperties, value smithyjson.Value) {
+	o := value.Object()
+	defer o.Close()
 
-		if v := e.Name; v != nil {
-			tfMap[names.AttrName] = aws.StringValue(v)
-		}
-
-		if v := e.Value; v != nil {
-			tfMap[names.AttrValue] = aws.StringValue(v)
-		}
-		tfList = append(tfList, tfMap)
+	if v.Containers != nil {
+		serializeEKSContainers(v.Containers, o.Key("containers"))
 	}
-
-	return tfList
+	if v.DnsPolicy != nil {
+		o.Key("dnsPolicy").String(*v.DnsPolicy)
+	}
+	if v.HostNetwork != nil {
+		o.Key("hostNetwork").Boolean(*v.HostNetwork)
+	}
+	if v.ImagePullSecrets != nil {
+		a := o.Key("imagePullSecrets").Array()
+		for _, secret := range v.ImagePullSecrets {
+			s := a.Value().Object()
+			if secret.Name != nil {
+				s.Key(names.AttrName).String(*secret.Name)
+			}
+			s.Close()
+		}
+		a.Close()
+	}
+	if v.InitContainers != nil {
+		serializeEKSContainers(v.InitContainers, o.Key("initContainers"))
+	}
+	if v.Metadata != nil {
+		m := o.Key("metadata").Object()
+		if v.Metadata.Annotations != nil {
+			serializeStringMap(v.Metadata.Annotations, m.Key("annotations"))
+		}
+		if v.Metadata.Labels != nil {
+			serializeStringMap(v.Metadata.Labels, m.Key("labels"))
+		}
+		if v.Metadata.Namespace != nil {
+			m.Key(names.AttrNamespace).String(*v.Metadata.Namespace)
+		}
+		m.Close()
+	}
+	if v.ServiceAccountName != nil {
+		o.Key("serviceAccountName").String(*v.ServiceAccountName)
+	}
+	if v.ShareProcessNamespace != nil {
+		o.Key("shareProcessNamespace").Boolean(*v.ShareProcessNamespace)
+	}
+	if v.Volumes != nil {
+		serializeEKSVolumes(v.Volumes, o.Key("volumes"))
+	}
 }
 
-func flattenEKSContainerVolumeMounts(volumeMounts []*batch.EksContainerVolumeMount) (tfList []interface{}) {
-	for _, v := range volumeMounts {
-		tfMap := map[string]interface{}{}
+func serializeEKSContainers(v []awstypes.EksContainer, value smithyjson.Value) {
+	a := value.Array()
+	defer a.Close()
 
-		if v := v.Name; v != nil {
-			tfMap[names.AttrName] = aws.StringValue(v)
-		}
-
-		if v := v.MountPath; v != nil {
-			tfMap["mount_path"] = aws.StringValue(v)
-		}
-
-		if v := v.ReadOnly; v != nil {
-			tfMap["read_only"] = aws.BoolValue(v)
-		}
-		tfList = append(tfList, tfMap)
+	for _, container := range v {
+		serializeEKSContainer(&container, a.Value())
 	}
-
-	return tfList
 }
 
-func flattenEKSVolumes(volumes []*batch.EksVolume) (tfList []interface{}) {
-	for _, v := range volumes {
-		tfMap := map[string]interface{}{}
+func serializeEKSContainer(v *awstypes.EksContainer, value smithyjson.Value) {
+	o := value.Object()
+	defer o.Close()
 
-		if v := v.Name; v != nil {
-			tfMap[names.AttrName] = aws.StringValue(v)
-		}
-
-		if v := v.EmptyDir; v != nil {
-			tfMap["empty_dir"] = []map[string]interface{}{{
-				"medium":     aws.StringValue(v.Medium),
-				"size_limit": aws.StringValue(v.SizeLimit),
-			}}
-		}
-
-		if v := v.HostPath; v != nil {
-			tfMap["host_path"] = []map[string]interface{}{{
-				names.AttrPath: aws.StringValue(v.Path),
-			}}
-		}
-
-		if v := v.Secret; v != nil {
-			tfMap["secret"] = []map[string]interface{}{{
-				"secret_name": aws.StringValue(v.SecretName),
-				"optional":    aws.BoolValue(v.Optional),
-			}}
-		}
-		tfList = append(tfList, tfMap)
+	if v.Args != nil {
+		serializeStringList(v.Args, o.Key("args"))
 	}
+	if v.Command != nil {
+		serializeStringList(v.Command, o.Key("command"))
+	}
+	if v.Env != nil {
+		a := o.Key("env").Array()
+		for _, variable := range v.Env {
+			e := a.Value().Object()
+			if variable.Name != nil {
+				e.Key(names.AttrName).String(*variable.Name)
+			}
+			if variable.Value != nil {
+				e.Key(names.AttrValue).String(*variable.Value)
+			}
+			e.Close()
+		}
+		a.Close()
+	}
+	if v.Image != nil {
+		o.Key("image").String(*v.Image)
+	}
+	if v.ImagePullPolicy != nil {
+		o.Key("imagePullPolicy").String(*v.ImagePullPolicy)
+	}
+	if v.Name != nil {
+		o.Key(names.AttrName).String(*v.Name)
+	}
+	if v.Resources != nil {
+		r := o.Key(names.AttrResources).Object()
+		if v.Resources.Limits != nil {
+			serializeStringMap(v.Resources.Limits, r.Key("limits"))
+		}
+		if v.Resources.Requests != nil {
+			serializeStringMap(v.Resources.Requests, r.Key("requests"))
+		}
+		r.Close()
+	}
+	if v.SecurityContext != nil {
+		serializeEKSContainerSecurityContext(v.SecurityContext, o.Key("securityContext"))
+	}
+	if v.VolumeMounts != nil {
+		a := o.Key("volumeMounts").Array()
+		for _, mount := range v.VolumeMounts {
+			m := a.Value().Object()
+			if mount.MountPath != nil {
+				m.Key("mountPath").String(*mount.MountPath)
+			}
+			if mount.Name != nil {
+				m.Key(names.AttrName).String(*mount.Name)
+			}
+			if mount.ReadOnly != nil {
+				m.Key("readOnly").Boolean(*mount.ReadOnly)
+			}
+			if mount.SubPath != nil {
+				m.Key("subPath").String(*mount.SubPath)
+			}
+			m.Close()
+		}
+		a.Close()
+	}
+}
 
-	return tfList
+func serializeEKSContainerSecurityContext(v *awstypes.EksContainerSecurityContext, value smithyjson.Value) {
+	o := value.Object()
+	defer o.Close()
+
+	if v.AllowPrivilegeEscalation != nil {
+		o.Key("allowPrivilegeEscalation").Boolean(*v.AllowPrivilegeEscalation)
+	}
+	if v.Privileged != nil {
+		o.Key("privileged").Boolean(*v.Privileged)
+	}
+	if v.ReadOnlyRootFilesystem != nil {
+		o.Key("readOnlyRootFilesystem").Boolean(*v.ReadOnlyRootFilesystem)
+	}
+	if v.RunAsGroup != nil {
+		o.Key("runAsGroup").Long(*v.RunAsGroup)
+	}
+	if v.RunAsNonRoot != nil {
+		o.Key("runAsNonRoot").Boolean(*v.RunAsNonRoot)
+	}
+	if v.RunAsUser != nil {
+		o.Key("runAsUser").Long(*v.RunAsUser)
+	}
+}
+
+func serializeEKSVolumes(v []awstypes.EksVolume, value smithyjson.Value) {
+	a := value.Array()
+	defer a.Close()
+
+	for _, volume := range v {
+		o := a.Value().Object()
+		if volume.EmptyDir != nil {
+			d := o.Key("emptyDir").Object()
+			if volume.EmptyDir.Medium != nil {
+				d.Key("medium").String(*volume.EmptyDir.Medium)
+			}
+			if volume.EmptyDir.SizeLimit != nil {
+				d.Key("sizeLimit").String(*volume.EmptyDir.SizeLimit)
+			}
+			d.Close()
+		}
+		if volume.HostPath != nil {
+			h := o.Key("hostPath").Object()
+			if volume.HostPath.Path != nil {
+				h.Key(names.AttrPath).String(*volume.HostPath.Path)
+			}
+			h.Close()
+		}
+		if volume.Name != nil {
+			o.Key(names.AttrName).String(*volume.Name)
+		}
+		if volume.PersistentVolumeClaim != nil {
+			p := o.Key("persistentVolumeClaim").Object()
+			if volume.PersistentVolumeClaim.ClaimName != nil {
+				p.Key("claimName").String(*volume.PersistentVolumeClaim.ClaimName)
+			}
+			if volume.PersistentVolumeClaim.ReadOnly != nil {
+				p.Key("readOnly").Boolean(*volume.PersistentVolumeClaim.ReadOnly)
+			}
+			p.Close()
+		}
+		if volume.Secret != nil {
+			s := o.Key("secret").Object()
+			if volume.Secret.Optional != nil {
+				s.Key("optional").Boolean(*volume.Secret.Optional)
+			}
+			if volume.Secret.SecretName != nil {
+				s.Key("secretName").String(*volume.Secret.SecretName)
+			}
+			s.Close()
+		}
+		o.Close()
+	}
 }

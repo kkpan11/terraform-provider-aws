@@ -1,16 +1,16 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package kendra
 
 import (
 	"context"
-	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kendra"
 	"github.com/aws/aws-sdk-go-v2/service/kendra/types"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
+	"github.com/hashicorp/terraform-provider-aws/internal/errs"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 )
 
@@ -22,11 +22,9 @@ func FindDataSourceByID(ctx context.Context, conn *kendra.Client, id, indexId st
 
 	out, err := conn.DescribeDataSource(ctx, in)
 
-	var resourceNotFoundException *types.ResourceNotFoundException
-	if errors.As(err, &resourceNotFoundException) {
+	if errs.IsA[*types.ResourceNotFoundException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: in,
+			LastError: err,
 		}
 	}
 
@@ -35,7 +33,7 @@ func FindDataSourceByID(ctx context.Context, conn *kendra.Client, id, indexId st
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil
@@ -49,11 +47,9 @@ func FindFaqByID(ctx context.Context, conn *kendra.Client, id, indexId string) (
 
 	out, err := conn.DescribeFaq(ctx, in)
 
-	var resourceNotFoundException *types.ResourceNotFoundException
-	if errors.As(err, &resourceNotFoundException) {
+	if errs.IsA[*types.ResourceNotFoundException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: in,
+			LastError: err,
 		}
 	}
 
@@ -62,7 +58,7 @@ func FindFaqByID(ctx context.Context, conn *kendra.Client, id, indexId string) (
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil
@@ -76,12 +72,9 @@ func FindQuerySuggestionsBlockListByID(ctx context.Context, conn *kendra.Client,
 
 	out, err := conn.DescribeQuerySuggestionsBlockList(ctx, in)
 	if err != nil {
-		var resourceNotFoundException *types.ResourceNotFoundException
-
-		if errors.As(err, &resourceNotFoundException) {
+		if errs.IsA[*types.ResourceNotFoundException](err) {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: in,
+				LastError: err,
 			}
 		}
 
@@ -89,7 +82,7 @@ func FindQuerySuggestionsBlockListByID(ctx context.Context, conn *kendra.Client,
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil
@@ -103,11 +96,9 @@ func FindThesaurusByID(ctx context.Context, conn *kendra.Client, id, indexId str
 
 	out, err := conn.DescribeThesaurus(ctx, in)
 
-	var resourceNotFoundException *types.ResourceNotFoundException
-	if errors.As(err, &resourceNotFoundException) {
+	if errs.IsA[*types.ResourceNotFoundException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: in,
+			LastError: err,
 		}
 	}
 
@@ -116,7 +107,7 @@ func FindThesaurusByID(ctx context.Context, conn *kendra.Client, id, indexId str
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil

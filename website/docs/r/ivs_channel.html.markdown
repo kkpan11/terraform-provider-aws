@@ -24,12 +24,13 @@ resource "aws_ivs_channel" "example" {
 
 The following arguments are optional:
 
+* `region` - (Optional) Region where this resource will be [managed](https://docs.aws.amazon.com/general/latest/gr/rande.html#regional-endpoints). Defaults to the Region set in the [provider configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#aws-configuration-reference).
 * `authorized` - (Optional) If `true`, channel is private (enabled for playback authorization).
 * `latency_mode` - (Optional) Channel latency mode. Valid values: `NORMAL`, `LOW`.
 * `name` - (Optional) Channel name.
 * `recording_configuration_arn` - (Optional) Recording configuration ARN.
 * `tags` - (Optional) A map of tags to assign to the resource. If configured with a provider [`default_tags` configuration block](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#default_tags-configuration-block) present, tags with matching keys will overwrite those defined at the provider-level.
-* `type` - (Optional) Channel type, which determines the allowable resolution and bitrate. Valid values: `STANDARD`, `BASIC`.
+* `type` - (Optional) Channel type, which determines the allowable resolution and bitrate. Valid values: `STANDARD`, `BASIC`, `ADVANCED_SD`, `ADVANCED_HD`.
 
 ## Attribute Reference
 
@@ -49,6 +50,27 @@ This resource exports the following attributes in addition to the arguments abov
 * `delete` - (Default `5m`)
 
 ## Import
+
+In Terraform v1.12.0 and later, the [`import` block](https://developer.hashicorp.com/terraform/language/import) can be used with the `identity` attribute. For example:
+
+```terraform
+import {
+  to = aws_ivs_channel.example
+  identity = {
+    "arn" = "arn:aws:ivs:us-west-2:123456789012:channel/abcdABCDefgh"
+  }
+}
+
+resource "aws_ivs_channel" "example" {
+  ### Configuration omitted for brevity ###
+}
+```
+
+### Identity Schema
+
+#### Required
+
+- `arn` (String) ARN of the IVS channel.
 
 In Terraform v1.5.0 and later, use an [`import` block](https://developer.hashicorp.com/terraform/language/import) to import IVS (Interactive Video) Channel using the ARN. For example:
 

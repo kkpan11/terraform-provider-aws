@@ -32,6 +32,7 @@ resource "aws_ec2_fleet" "example" {
 
 This resource supports the following arguments:
 
+* `region` - (Optional) Region where this resource will be [managed](https://docs.aws.amazon.com/general/latest/gr/rande.html#regional-endpoints). Defaults to the Region set in the [provider configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#aws-configuration-reference).
 * `context` - (Optional) Reserved.
 * `excess_capacity_termination_policy` - (Optional) Whether running instances should be terminated if the total target capacity of the EC2 Fleet is decreased below the current size of the EC2. Valid values: `no-termination`, `termination`. Defaults to `termination`. Supported only for fleets of type `maintain`.
 * `launch_template_config` - (Required) Nested argument containing EC2 Launch Template configurations. Defined below.
@@ -95,7 +96,7 @@ resource "aws_ec2_fleet" "example" {
 * `subnet_id` - (Optional) ID of the subnet in which to launch the instances.
 * `weighted_capacity` - (Optional) Number of units provided by the specified instance type.
 
-##### instance_requirements
+#### instance_requirements
 
 The attributes for the instance types. For a list of currently supported values, please see ['InstanceRequirementsRequest'](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_InstanceRequirementsRequest.html).
 
@@ -107,7 +108,7 @@ This configuration block supports the following:
     * `min` - (Optional) Minimum.
     * `max` - (Optional) Maximum. Set to `0` to exclude instance types with accelerators.
 * `accelerator_manufacturers` - (Optional) List of accelerator manufacturer names. Default is any manufacturer.
-* `accelerator_names` - (Optional) List of accelerator names. Default is any acclerator.
+* `accelerator_names` - (Optional) List of accelerator names. Default is any accelerator.
 * `accelerator_total_memory_mib` - (Optional) Block describing the minimum and maximum total memory of the accelerators. Default is no minimum or maximum.
     * `min` - (Optional) The minimum amount of accelerator memory, in MiB. To specify no minimum limit, omit this parameter.
     * `max` - (Optional) The maximum amount of accelerator memory, in MiB. To specify no maximum limit, omit this parameter.
@@ -116,13 +117,13 @@ This configuration block supports the following:
 
     If you specify `AllowedInstanceTypes`, you can't specify `ExcludedInstanceTypes`.
 
-* `bare_metal` - (Optional) Indicate whether bare metal instace types should be `included`, `excluded`, or `required`. Default is `excluded`.
+* `bare_metal` - (Optional) Indicate whether bare metal instance types should be `included`, `excluded`, or `required`. Default is `excluded`.
 * `baseline_ebs_bandwidth_mbps` - (Optional) Block describing the minimum and maximum baseline EBS bandwidth, in Mbps. Default is no minimum or maximum.
     * `min` - (Optional) The minimum baseline bandwidth, in Mbps. To specify no minimum limit, omit this parameter..
     * `max` - (Optional) The maximum baseline bandwidth, in Mbps. To specify no maximum limit, omit this parameter..
 * `burstable_performance` - (Optional) Indicates whether burstable performance T instance types are `included`, `excluded`, or `required`. Default is `excluded`.
 * `cpu_manufacturers` (Optional) The CPU manufacturers to include. Default is any manufacturer.
-    ~> **NOTE:** Don't confuse the CPU hardware manufacturer with the CPU hardware architecture. Instances will be launched with a compatible CPU architecture based on the Amazon Machine Image (AMI) that you specify in your launch template.
+    ~> **NOTE:** Don't confuse the CPU hardware manufacturer with the CPU hardware architecture. Instances will be launched with a compatible CPU architecture based on the AMI that you specify in your launch template.
 * `excluded_instance_types` - (Optional) The instance types to exclude. You can use strings with one or more wild cards, represented by an asterisk (\*). The following are examples: `c5*`, `m5a.*`, `r*`, `*3*`. For example, if you specify `c5*`, you are excluding the entire C5 instance family, which includes all C5a and C5n instance types. If you specify `m5a.*`, you are excluding all the M5a instance types, but not the M5n instance types. Maximum of 400 entries in the list; each entry is limited to 30 characters. Default is no excluded instance types.
 
     If you specify `AllowedInstanceTypes`, you can't specify `ExcludedInstanceTypes`.
@@ -130,6 +131,7 @@ This configuration block supports the following:
 * `instance_generations` - (Optional) Indicates whether current or previous generation instance types are included. The current generation instance types are recommended for use. Valid values are `current` and `previous`. Default is `current` and `previous` generation instance types.
 * `local_storage` - (Optional) Indicate whether instance types with local storage volumes are `included`, `excluded`, or `required`. Default is `included`.
 * `local_storage_types` - (Optional) List of local storage type names. Valid values are `hdd` and `ssd`. Default any storage type.
+* `max_spot_price_as_percentage_of_optimal_on_demand_price` - (Optional) The price protection threshold for Spot Instances. This is the maximum you’ll pay for a Spot Instance, expressed as a percentage higher than the cheapest M, C, or R instance type with your specified attributes. When Amazon EC2 Auto Scaling selects instance types with your attributes, we will exclude instance types whose price is higher than your threshold. The parameter accepts an integer, which Amazon EC2 Auto Scaling interprets as a percentage. To turn off price protection, specify a high value, such as 999999. Conflicts with `spot_max_price_percentage_over_lowest_price`
 * `memory_gib_per_vcpu` - (Optional) Block describing the minimum and maximum amount of memory (GiB) per vCPU. Default is no minimum or maximum.
     * `min` - (Optional) The minimum amount of memory per vCPU, in GiB. To specify no minimum limit, omit this parameter.
     * `max` - (Optional) The maximum amount of memory per vCPU, in GiB. To specify no maximum limit, omit this parameter.
@@ -147,7 +149,7 @@ This configuration block supports the following:
     If you set `target_capacity_unit_type` to `vcpu` or `memory-mib`, the price protection threshold is applied based on the per-vCPU or per-memory price instead of the per-instance price.
 
 * `require_hibernate_support` - (Optional) Indicate whether instance types must support On-Demand Instance Hibernation, either `true` or `false`. Default is `false`.
-* `spot_max_price_percentage_over_lowest_price` - (Optional) The price protection threshold for Spot Instances. This is the maximum you’ll pay for a Spot Instance, expressed as a percentage higher than the cheapest M, C, or R instance type with your specified attributes. When Amazon EC2 Auto Scaling selects instance types with your attributes, we will exclude instance types whose price is higher than your threshold. The parameter accepts an integer, which Amazon EC2 Auto Scaling interprets as a percentage. To turn off price protection, specify a high value, such as 999999. Default is 100.
+* `spot_max_price_percentage_over_lowest_price` - (Optional) The price protection threshold for Spot Instances. This is the maximum you’ll pay for a Spot Instance, expressed as a percentage higher than the cheapest M, C, or R instance type with your specified attributes. When Amazon EC2 Auto Scaling selects instance types with your attributes, we will exclude instance types whose price is higher than your threshold. The parameter accepts an integer, which Amazon EC2 Auto Scaling interprets as a percentage. To turn off price protection, specify a high value, such as 999999. Default is 100. Conflicts with `max_spot_price_as_percentage_of_optimal_on_demand_price`
 
     If you set DesiredCapacityType to vcpu or memory-mib, the price protection threshold is applied based on the per vCPU or per memory price instead of the per instance price.
 

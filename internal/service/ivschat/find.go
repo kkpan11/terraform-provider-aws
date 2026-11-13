@@ -1,16 +1,16 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package ivschat
 
 import (
 	"context"
-	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ivschat"
 	"github.com/aws/aws-sdk-go-v2/service/ivschat/types"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
+	"github.com/hashicorp/terraform-provider-aws/internal/errs"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 )
 
@@ -20,11 +20,9 @@ func findLoggingConfigurationByID(ctx context.Context, conn *ivschat.Client, id 
 	}
 	out, err := conn.GetLoggingConfiguration(ctx, in)
 	if err != nil {
-		var nfe *types.ResourceNotFoundException
-		if errors.As(err, &nfe) {
+		if errs.IsA[*types.ResourceNotFoundException](err) {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: in,
+				LastError: err,
 			}
 		}
 
@@ -32,7 +30,7 @@ func findLoggingConfigurationByID(ctx context.Context, conn *ivschat.Client, id 
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil
@@ -44,11 +42,9 @@ func findRoomByID(ctx context.Context, conn *ivschat.Client, id string) (*ivscha
 	}
 	out, err := conn.GetRoom(ctx, in)
 	if err != nil {
-		var nfe *types.ResourceNotFoundException
-		if errors.As(err, &nfe) {
+		if errs.IsA[*types.ResourceNotFoundException](err) {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: in,
+				LastError: err,
 			}
 		}
 
@@ -56,7 +52,7 @@ func findRoomByID(ctx context.Context, conn *ivschat.Client, id string) (*ivscha
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil

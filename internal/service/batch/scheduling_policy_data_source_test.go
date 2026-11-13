@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package batch_test
@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"testing"
 
-	sdkacctest "github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
@@ -18,11 +17,11 @@ import (
 
 func TestAccBatchSchedulingPolicyDataSource_basic(t *testing.T) {
 	ctx := acctest.Context(t)
-	rName := sdkacctest.RandomWithPrefix("tf_acc_test_")
+	rName := acctest.RandomWithPrefix(t, "tf_acc_test_")
 	resourceName := "aws_batch_scheduling_policy.test"
 	dataSourceName := "data.aws_batch_scheduling_policy.test"
 
-	resource.Test(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.BatchServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
@@ -45,7 +44,7 @@ func TestAccBatchSchedulingPolicyDataSource_basic(t *testing.T) {
 	})
 }
 
-func testAccSchedulingPolicyDataSourceConfig(rName string) string {
+func testAccSchedulingPolicyDataSourceConfig_base(rName string) string {
 	return fmt.Sprintf(`
 resource "aws_batch_scheduling_policy" "test" {
   name = %[1]q
@@ -69,7 +68,7 @@ resource "aws_batch_scheduling_policy" "test" {
 }
 
 func testAccSchedulingPolicyDataSourceConfig_basic(rName string) string {
-	return fmt.Sprintf(testAccSchedulingPolicyDataSourceConfig(rName) + `
+	return acctest.ConfigCompose(testAccSchedulingPolicyDataSourceConfig_base(rName), `
 data "aws_batch_scheduling_policy" "test" {
   arn = aws_batch_scheduling_policy.test.arn
 }

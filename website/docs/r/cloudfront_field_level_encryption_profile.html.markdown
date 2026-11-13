@@ -54,13 +54,14 @@ This resource supports the following arguments:
 
 This resource exports the following attributes in addition to the arguments above:
 
+* `arn` - The Field Level Encryption Profile ARN.
 * `caller_reference` - Internal value used by CloudFront to allow future updates to the Field Level Encryption Profile.
 * `etag` - The current version of the Field Level Encryption Profile. For example: `E2QWRUHAPOMQZL`.
 * `id` - The identifier for the Field Level Encryption Profile. For example: `K3D5EWEUDCCXON`.
 
 ## Import
 
-In Terraform v1.5.0 and later, use an [`import` block](https://developer.hashicorp.com/terraform/language/import) to import Cloudfront Field Level Encryption Profile using the `id`. For example:
+In Terraform v1.5.0 and later, use an [`import` block](https://developer.hashicorp.com/terraform/language/import) to import CloudFront Field Level Encryption Profile using the `id`. For example:
 
 ```terraform
 import {
@@ -69,7 +70,7 @@ import {
 }
 ```
 
-Using `terraform import`, import Cloudfront Field Level Encryption Profile using the `id`. For example:
+Using `terraform import`, import CloudFront Field Level Encryption Profile using the `id`. For example:
 
 ```console
 % terraform import aws_cloudfront_field_level_encryption_profile.profile K3D5EWEUDCCXON

@@ -3,7 +3,7 @@ subcategory: "Auto Scaling"
 layout: "aws"
 page_title: "AWS: aws_autoscaling_policy"
 description: |-
-  Provides an AutoScaling Scaling Group resource.
+  Provides an AutoScaling Scaling Policy resource.
 ---
 
 # Resource: aws_autoscaling_policy
@@ -11,7 +11,7 @@ description: |-
 Provides an AutoScaling Scaling Policy resource.
 
 ~> **NOTE:** You may want to omit `desired_capacity` attribute from attached `aws_autoscaling_group`
-when using autoscaling policies. It's good practice to pick either
+when using Auto Scaling policies. It's good practice to pick either
 [manual](https://docs.aws.amazon.com/AutoScaling/latest/DeveloperGuide/as-manual-scaling.html)
 or [dynamic](https://docs.aws.amazon.com/AutoScaling/latest/DeveloperGuide/as-scale-based-on-demand.html)
 (policy-based) scaling.
@@ -63,7 +63,8 @@ resource "aws_autoscaling_policy" "example" {
               value = "my-queue"
             }
           }
-          stat = "Sum"
+          stat   = "Sum"
+          period = 10
         }
         return_data = false
       }
@@ -79,7 +80,8 @@ resource "aws_autoscaling_policy" "example" {
               value = "my-asg"
             }
           }
-          stat = "Average"
+          stat   = "Average"
+          period = 10
         }
         return_data = false
       }
@@ -174,8 +176,11 @@ resource "aws_autoscaling_policy" "example" {
 
 ## Argument Reference
 
+This resource supports the following arguments:
+
+* `region` - (Optional) Region where this resource will be [managed](https://docs.aws.amazon.com/general/latest/gr/rande.html#regional-endpoints). Defaults to the Region set in the [provider configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#aws-configuration-reference).
 * `name` - (Required) Name of the policy.
-* `autoscaling_group_name` - (Required) Name of the autoscaling group.
+* `autoscaling_group_name` - (Required) Name of the Auto Scaling group.
 * `adjustment_type` - (Optional) Whether the adjustment is an absolute number or a percentage of the current capacity. Valid values are `ChangeInCapacity`, `ExactCapacity`, and `PercentChangeInCapacity`.
 * `policy_type` - (Optional) Policy type, either "SimpleScaling", "StepScaling", "TargetTrackingScaling", or "PredictiveScaling". If this value isn't provided, AWS will default to "SimpleScaling."
 * `predictive_scaling_configuration` - (Optional) Predictive scaling policy configuration to use with Amazon EC2 Auto Scaling.
@@ -257,32 +262,33 @@ The following fields are available in target tracking configuration:
 
 ### predefined_metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `predefined_metric_type` - (Required) Metric type.
 * `resource_label` - (Optional) Identifies the resource associated with the metric type.
 
 ### customized_metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `metric_dimension` - (Optional) Dimensions of the metric.
 * `metric_name` - (Optional) Name of the metric.
 * `namespace` - (Optional) Namespace of the metric.
+* `period` - (Optional) The period of the metric in seconds.
 * `statistic` - (Optional) Statistic of the metric.
 * `unit` - (Optional) Unit of the metric.
 * `metrics` - (Optional) Metrics to include, as a metric data query.
 
 #### metric_dimension
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `name` - (Required) Name of the dimension.
 * `value` - (Required) Value of the dimension.
 
 #### metrics
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `expression` - (Optional) Math expression used on the returned metric. You must specify either `expression` or `metric_stat`, but not both.
 * `id` - (Required) Short name for the metric used in target tracking scaling policy.
@@ -290,32 +296,33 @@ This argument supports the following arguments:
 * `metric_stat` - (Optional) Structure that defines CloudWatch metric to be used in target tracking scaling policy. You must specify either `expression` or `metric_stat`, but not both.
 * `return_data` - (Optional) Boolean that indicates whether to return the timestamps and raw data values of this metric, the default is true
 
-##### metric_stat
+#### metric_stat
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `metric` - (Required) Structure that defines the CloudWatch metric to return, including the metric name, namespace, and dimensions.
+* `period` - (Optional) The period of the metric in seconds.
 * `stat` - (Required) Statistic of the metrics to return.
 * `unit` - (Optional) Unit of the metrics to return.
 
-##### metric
+#### metric
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `dimensions` - (Optional) Dimensions of the metric.
 * `metric_name` - (Required) Name of the metric.
 * `namespace` - (Required) Namespace of the metric.
 
-###### dimensions
+#### dimensions
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `name` - (Required) Name of the dimension.
 * `value` - (Required) Value of the dimension.
 
 ### predictive_scaling_configuration
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `max_capacity_breach_behavior` - (Optional) Defines the behavior that should be applied if the forecast capacity approaches or exceeds the maximum capacity of the Auto Scaling group. Valid values are `HonorMaxCapacity` or `IncreaseMaxCapacity`. Default is `HonorMaxCapacity`.
 * `max_capacity_buffer` - (Optional) Size of the capacity buffer to use when the forecast capacity is close to or exceeds the maximum capacity. Valid range is `0` to `100`. If set to `0`, Amazon EC2 Auto Scaling may scale capacity higher than the maximum capacity to equal but not exceed forecast capacity.
@@ -325,7 +332,7 @@ This argument supports the following arguments:
 
 #### metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `customized_capacity_metric_specification` - (Optional) Customized capacity metric specification. The field is only valid when you use `customized_load_metric_specification`
 * `customized_load_metric_specification` - (Optional) Customized load metric specification.
@@ -334,48 +341,48 @@ This argument supports the following arguments:
 * `predefined_metric_pair_specification` - (Optional) Metric pair specification from which Amazon EC2 Auto Scaling determines the appropriate scaling metric and load metric to use.
 * `predefined_scaling_metric_specification` - (Optional) Predefined scaling metric specification.
 
-##### predefined_load_metric_specification
+#### predefined_load_metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `predefined_metric_type` - (Required) Metric type. Valid values are `ASGTotalCPUUtilization`, `ASGTotalNetworkIn`, `ASGTotalNetworkOut`, or `ALBTargetGroupRequestCount`.
 * `resource_label` - (Required) Label that uniquely identifies a specific Application Load Balancer target group from which to determine the request count served by your Auto Scaling group. You create the resource label by appending the final portion of the load balancer ARN and the final portion of the target group ARN into a single value, separated by a forward slash (/). Refer to [PredefinedMetricSpecification](https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_PredefinedMetricSpecification.html) for more information.
 
-##### predefined_metric_pair_specification
+#### predefined_metric_pair_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `predefined_metric_type` - (Required) Which metrics to use. There are two different types of metrics for each metric type: one is a load metric and one is a scaling metric. For example, if the metric type is `ASGCPUUtilization`, the Auto Scaling group's total CPU metric is used as the load metric, and the average CPU metric is used for the scaling metric. Valid values are `ASGCPUUtilization`, `ASGNetworkIn`, `ASGNetworkOut`, or `ALBRequestCount`.
 * `resource_label` - (Required) Label that uniquely identifies a specific Application Load Balancer target group from which to determine the request count served by your Auto Scaling group. You create the resource label by appending the final portion of the load balancer ARN and the final portion of the target group ARN into a single value, separated by a forward slash (/). Refer to [PredefinedMetricSpecification](https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_PredefinedMetricSpecification.html) for more information.
 
-##### predefined_scaling_metric_specification
+#### predefined_scaling_metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `predefined_metric_type` - (Required) Describes a scaling metric for a predictive scaling policy. Valid values are `ASGAverageCPUUtilization`, `ASGAverageNetworkIn`, `ASGAverageNetworkOut`, or `ALBRequestCountPerTarget`.
 * `resource_label` - (Required) Label that uniquely identifies a specific Application Load Balancer target group from which to determine the request count served by your Auto Scaling group. You create the resource label by appending the final portion of the load balancer ARN and the final portion of the target group ARN into a single value, separated by a forward slash (/). Refer to [PredefinedMetricSpecification](https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_PredefinedMetricSpecification.html) for more information.
 
-##### customized_scaling_metric_specification
+#### customized_scaling_metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `metric_data_queries` - (Required) List of up to 10 structures that defines custom scaling metric in predictive scaling policy
 
-##### customized_load_metric_specification
+#### customized_load_metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `metric_data_queries` - (Required) List of up to 10 structures that defines custom load metric in predictive scaling policy
 
-##### customized_capacity_metric_specification
+#### customized_capacity_metric_specification
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `metric_data_queries` - (Required) List of up to 10 structures that defines custom capacity metric in predictive scaling policy
 
-##### metric_data_queries
+#### metric_data_queries
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `expression` - (Optional) Math expression used on the returned metric. You must specify either `expression` or `metric_stat`, but not both.
 * `id` - (Required) Short name for the metric used in predictive scaling policy.
@@ -383,25 +390,25 @@ This argument supports the following arguments:
 * `metric_stat` - (Optional) Structure that defines CloudWatch metric to be used in predictive scaling policy. You must specify either `expression` or `metric_stat`, but not both.
 * `return_data` - (Optional) Boolean that indicates whether to return the timestamps and raw data values of this metric, the default is true
 
-##### metric_stat
+#### metric_stat
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `metric` - (Required) Structure that defines the CloudWatch metric to return, including the metric name, namespace, and dimensions.
 * `stat` - (Required) Statistic of the metrics to return.
 * `unit` - (Optional) Unit of the metrics to return.
 
-##### metric
+#### metric
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `dimensions` - (Optional) Dimensions of the metric.
 * `metric_name` - (Required) Name of the metric.
 * `namespace` - (Required) Namespace of the metric.
 
-##### dimensions
+#### dimensions
 
-This argument supports the following arguments:
+This configuration block supports the following arguments:
 
 * `name` - (Required) Name of the dimension.
 * `value` - (Required) Value of the dimension.
@@ -411,24 +418,48 @@ This argument supports the following arguments:
 This resource exports the following attributes in addition to the arguments above:
 
 * `arn` - ARN assigned by AWS to the scaling policy.
-* `name` - Scaling policy's name.
-* `autoscaling_group_name` - The scaling policy's assigned autoscaling group.
-* `adjustment_type` - Scaling policy's adjustment type.
-* `policy_type` - Scaling policy's type.
 
 ## Import
 
-In Terraform v1.5.0 and later, use an [`import` block](https://developer.hashicorp.com/terraform/language/import) to import AutoScaling scaling policy using the role autoscaling_group_name and name separated by `/`. For example:
+In Terraform v1.12.0 and later, the [`import` block](https://developer.hashicorp.com/terraform/language/import) can be used with the `identity` attribute. For example:
 
 ```terraform
 import {
-  to = aws_autoscaling_policy.test-policy
-  id = "asg-name/policy-name"
+  to = aws_autoscaling_policy.example
+  identity = {
+    autoscaling_group_name = "example-asg"
+    name                   = "example-policy"
+  }
+}
+
+resource "aws_autoscaling_policy" "example" {
+  ### Configuration omitted for brevity ###
 }
 ```
 
-Using `terraform import`, import AutoScaling scaling policy using the role autoscaling_group_name and name separated by `/`. For example:
+### Identity Schema
+
+#### Required
+
+* `autoscaling_group_name` (String) Name of the Auto Scaling group.
+* `name` (String) Name of the policy.
+
+#### Optional
+
+* `account_id` (String) AWS Account where this resource is managed.
+* `region` (String) Region where this resource is managed.
+
+In Terraform v1.5.0 and later, use an [`import` block](https://developer.hashicorp.com/terraform/language/import) to import AutoScaling Policies using `autoscaling_group_name` and `name` separated by a forward slash (`/`). For example:
+
+```terraform
+import {
+  to = aws_autoscaling_policy.example
+  id = "example-asg/example-policy"
+}
+```
+
+Using `terraform import`, import AutoScaling Scaling Policies using `autoscaling_group_name` and `name` separated by a forward slash (`/`). For example:
 
 ```console
-% terraform import aws_autoscaling_policy.test-policy asg-name/policy-name
+% terraform import aws_autoscaling_policy.example example-asg/example-policy
 ```

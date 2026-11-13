@@ -1,16 +1,16 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package ssmcontacts
 
 import (
 	"context"
-	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssmcontacts"
 	"github.com/aws/aws-sdk-go-v2/service/ssmcontacts/types"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
+	"github.com/hashicorp/terraform-provider-aws/internal/errs"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 )
 
@@ -20,11 +20,9 @@ func findContactByID(ctx context.Context, conn *ssmcontacts.Client, id string) (
 	}
 	out, err := conn.GetContact(ctx, in)
 	if err != nil {
-		var nfe *types.ResourceNotFoundException
-		if errors.As(err, &nfe) {
+		if errs.IsA[*types.ResourceNotFoundException](err) {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: in,
+				LastError: err,
 			}
 		}
 
@@ -32,7 +30,7 @@ func findContactByID(ctx context.Context, conn *ssmcontacts.Client, id string) (
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil
@@ -44,11 +42,9 @@ func findContactChannelByID(ctx context.Context, conn *ssmcontacts.Client, id st
 	}
 	out, err := conn.GetContactChannel(ctx, in)
 	if err != nil {
-		var nfe *types.ResourceNotFoundException
-		if errors.As(err, &nfe) {
+		if errs.IsA[*types.ResourceNotFoundException](err) {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: in,
+				LastError: err,
 			}
 		}
 
@@ -56,7 +52,7 @@ func findContactChannelByID(ctx context.Context, conn *ssmcontacts.Client, id st
 	}
 
 	if out == nil {
-		return nil, tfresource.NewEmptyResultError(in)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return out, nil

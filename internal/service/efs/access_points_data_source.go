@@ -1,13 +1,15 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package efs
 
 import (
 	"context"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/efs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/efs"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -16,41 +18,43 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
-// @SDKDataSource("aws_efs_access_points")
-func DataSourceAccessPoints() *schema.Resource {
+// @SDKDataSource("aws_efs_access_points", name="Access Point")
+func dataSourceAccessPoints() *schema.Resource {
 	return &schema.Resource{
 		ReadWithoutTimeout: dataSourceAccessPointsRead,
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARNs: {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			names.AttrFileSystemID: {
-				Type:         schema.TypeString,
-				Required:     true,
-				ValidateFunc: validation.StringIsNotEmpty,
-			},
-			names.AttrIDs: {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARNs: {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				names.AttrFileSystemID: {
+					Type:         schema.TypeString,
+					Required:     true,
+					ValidateFunc: validation.StringIsNotEmpty,
+				},
+				names.AttrIDs: {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+			}
 		},
 	}
 }
 
-func dataSourceAccessPointsRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func dataSourceAccessPointsRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-	conn := meta.(*conns.AWSClient).EFSConn(ctx)
+	conn := meta.(*conns.AWSClient).EFSClient(ctx)
 
 	fileSystemID := d.Get(names.AttrFileSystemID).(string)
-	input := &efs.DescribeAccessPointsInput{
+	input := efs.DescribeAccessPointsInput{
 		FileSystemId: aws.String(fileSystemID),
 	}
 
-	output, err := findAccessPointDescriptions(ctx, conn, input)
+	output, err := findAccessPoints(ctx, conn, &input)
 
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "reading EFS Access Points: %s", err)
@@ -59,8 +63,8 @@ func dataSourceAccessPointsRead(ctx context.Context, d *schema.ResourceData, met
 	var accessPointIDs, arns []string
 
 	for _, v := range output {
-		accessPointIDs = append(accessPointIDs, aws.StringValue(v.AccessPointId))
-		arns = append(arns, aws.StringValue(v.AccessPointArn))
+		accessPointIDs = append(accessPointIDs, aws.ToString(v.AccessPointId))
+		arns = append(arns, aws.ToString(v.AccessPointArn))
 	}
 
 	d.SetId(fileSystemID)
@@ -68,28 +72,4 @@ func dataSourceAccessPointsRead(ctx context.Context, d *schema.ResourceData, met
 	d.Set(names.AttrIDs, accessPointIDs)
 
 	return diags
-}
-
-func findAccessPointDescriptions(ctx context.Context, conn *efs.EFS, input *efs.DescribeAccessPointsInput) ([]*efs.AccessPointDescription, error) {
-	var output []*efs.AccessPointDescription
-
-	err := conn.DescribeAccessPointsPagesWithContext(ctx, input, func(page *efs.DescribeAccessPointsOutput, lastPage bool) bool {
-		if page == nil {
-			return !lastPage
-		}
-
-		for _, v := range page.AccessPoints {
-			if v != nil {
-				output = append(output, v)
-			}
-		}
-
-		return !lastPage
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return output, nil
 }

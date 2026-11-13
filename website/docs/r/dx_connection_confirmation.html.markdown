@@ -22,6 +22,7 @@ resource "aws_dx_connection_confirmation" "confirmation" {
 
 This resource supports the following arguments:
 
+* `region` - (Optional) Region where this resource will be [managed](https://docs.aws.amazon.com/general/latest/gr/rande.html#regional-endpoints). Defaults to the Region set in the [provider configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#aws-configuration-reference).
 * `connection_id` - (Required) The ID of the hosted connection.
 
 ### Removing `aws_dx_connection_confirmation` from your configuration
@@ -34,3 +35,9 @@ from your statefile and management, **but will not destroy the Hosted Connection
 This resource exports the following attributes in addition to the arguments above:
 
 * `id` - The ID of the connection.
+
+## Timeouts
+
+[Configuration options](https://developer.hashicorp.com/terraform/language/resources/syntax#operation-timeouts):
+
+- `create` - (Default `10m`)

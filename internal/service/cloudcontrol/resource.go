@@ -1,34 +1,35 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package cloudcontrol
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/YakDriver/regexache"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
-	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol/types"
+	awstypes "github.com/aws/aws-sdk-go-v2/service/cloudcontrol/types"
 	cfschema "github.com/hashicorp/aws-cloudformation-resource-schema-sdk-go"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/id"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
-	"github.com/hashicorp/terraform-provider-aws/internal/enum"
+	"github.com/hashicorp/terraform-provider-aws/internal/create"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	tfjson "github.com/hashicorp/terraform-provider-aws/internal/json"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tfcloudformation "github.com/hashicorp/terraform-provider-aws/internal/service/cloudformation"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
-	"github.com/mattbaird/jsonpatch"
 )
 
 // @SDKResource("aws_cloudcontrolapi_resource", name="Resource")
@@ -45,69 +46,67 @@ func resourceResource() *schema.Resource {
 			Update: schema.DefaultTimeout(2 * time.Hour),
 		},
 
-		Schema: map[string]*schema.Schema{
-			"desired_state": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			names.AttrProperties: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrRoleARN: {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			names.AttrSchema: {
-				Type:      schema.TypeString,
-				Optional:  true,
-				Computed:  true,
-				Sensitive: true,
-			},
-			"type_name": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringMatch(regexache.MustCompile(`[0-9A-Za-z]{2,64}::[0-9A-Za-z]{2,64}::[0-9A-Za-z]{2,64}`), "must be three alphanumeric sections separated by double colons (::)"),
-			},
-			"type_version_id": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				"desired_state": {
+					Type:     schema.TypeString,
+					Required: true,
+				},
+				names.AttrProperties: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrRoleARN: {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				names.AttrSchema: {
+					Type:      schema.TypeString,
+					Optional:  true,
+					Computed:  true,
+					Sensitive: true,
+				},
+				"type_name": {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.StringMatch(regexache.MustCompile(`[0-9A-Za-z]{2,64}::[0-9A-Za-z]{2,64}::[0-9A-Za-z]{2,64}`), "must be three alphanumeric sections separated by double colons (::)"),
+				},
+				"type_version_id": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+			}
 		},
 
 		CustomizeDiff: customdiff.Sequence(
 			resourceResourceCustomizeDiffGetSchema,
 			resourceResourceCustomizeDiffSchemaDiff,
-			customdiff.ComputedIf(names.AttrProperties, func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) bool {
+			customdiff.ComputedIf(names.AttrProperties, func(ctx context.Context, diff *schema.ResourceDiff, meta any) bool {
 				return diff.HasChange("desired_state")
 			}),
 		),
 	}
 }
 
-func resourceResourceCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceResourceCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-
 	conn := meta.(*conns.AWSClient).CloudControlClient(ctx)
 
 	typeName := d.Get("type_name").(string)
-	input := &cloudcontrol.CreateResourceInput{
-		ClientToken:  aws.String(id.UniqueId()),
+	input := cloudcontrol.CreateResourceInput{
+		ClientToken:  aws.String(create.UniqueId(ctx)),
 		DesiredState: aws.String(d.Get("desired_state").(string)),
 		TypeName:     aws.String(typeName),
 	}
-
 	if v, ok := d.GetOk(names.AttrRoleARN); ok {
 		input.RoleArn = aws.String(v.(string))
 	}
-
 	if v, ok := d.GetOk("type_version_id"); ok {
 		input.TypeVersionId = aws.String(v.(string))
 	}
 
-	output, err := conn.CreateResource(ctx, input)
-
+	output, err := conn.CreateResource(ctx, &input)
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "creating Cloud Control API (%s) Resource: %s", typeName, err)
 	}
@@ -115,34 +114,36 @@ func resourceResourceCreate(ctx context.Context, d *schema.ResourceData, meta in
 	// Always try to capture the identifier before returning errors.
 	d.SetId(aws.ToString(output.ProgressEvent.Identifier))
 
-	output.ProgressEvent, err = waitProgressEventOperationStatusSuccess(ctx, conn, aws.ToString(output.ProgressEvent.RequestToken), d.Timeout(schema.TimeoutCreate))
-
-	if err != nil {
+	requestToken := aws.ToString(output.ProgressEvent.RequestToken)
+	var progressEvent *awstypes.ProgressEvent
+	waiter := cloudcontrol.NewResourceRequestSuccessWaiter(conn, func(o *cloudcontrol.ResourceRequestSuccessWaiterOptions) {
+		o.Retryable = retryGetResourceRequestStatus(&progressEvent)
+	})
+	if err := waiter.Wait(ctx, &cloudcontrol.GetResourceRequestStatusInput{RequestToken: aws.String(requestToken)}, d.Timeout(schema.TimeoutCreate)); err != nil {
 		return sdkdiag.AppendErrorf(diags, "waiting for Cloud Control API (%s) Resource (%s) create: %s", typeName, d.Id(), err)
 	}
 
 	// Some resources do not set the identifier until after creation.
-	if d.Id() == "" {
-		d.SetId(aws.ToString(output.ProgressEvent.Identifier))
+	if d.Id() == "" && progressEvent != nil {
+		d.SetId(aws.ToString(progressEvent.Identifier))
 	}
 
 	return append(diags, resourceResourceRead(ctx, d, meta)...)
 }
 
-func resourceResourceRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceResourceRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-
 	conn := meta.(*conns.AWSClient).CloudControlClient(ctx)
 
 	typeName := d.Get("type_name").(string)
-	resourceDescription, err := findResource(ctx, conn,
+	resourceDescription, err := findResourceByFourPartKey(ctx, conn,
 		d.Id(),
 		typeName,
 		d.Get("type_version_id").(string),
 		d.Get(names.AttrRoleARN).(string),
 	)
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] Cloud Control API Resource (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -157,14 +158,12 @@ func resourceResourceRead(ctx context.Context, d *schema.ResourceData, meta inte
 	return diags
 }
 
-func resourceResourceUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceResourceUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-
 	conn := meta.(*conns.AWSClient).CloudControlClient(ctx)
 
 	if d.HasChange("desired_state") {
 		oldRaw, newRaw := d.GetChange("desired_state")
-
 		patchDocument, err := patchDocument(oldRaw.(string), newRaw.(string))
 
 		if err != nil {
@@ -172,28 +171,29 @@ func resourceResourceUpdate(ctx context.Context, d *schema.ResourceData, meta in
 		}
 
 		typeName := d.Get("type_name").(string)
-		input := &cloudcontrol.UpdateResourceInput{
-			ClientToken:   aws.String(id.UniqueId()),
+		input := cloudcontrol.UpdateResourceInput{
+			ClientToken:   aws.String(create.UniqueId(ctx)),
 			Identifier:    aws.String(d.Id()),
 			PatchDocument: aws.String(patchDocument),
 			TypeName:      aws.String(typeName),
 		}
-
 		if v, ok := d.GetOk(names.AttrRoleARN); ok {
 			input.RoleArn = aws.String(v.(string))
 		}
-
 		if v, ok := d.GetOk("type_version_id"); ok {
 			input.TypeVersionId = aws.String(v.(string))
 		}
 
-		output, err := conn.UpdateResource(ctx, input)
-
+		output, err := conn.UpdateResource(ctx, &input)
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "updating Cloud Control API (%s) Resource (%s): %s", typeName, d.Id(), err)
 		}
 
-		if _, err := waitProgressEventOperationStatusSuccess(ctx, conn, aws.ToString(output.ProgressEvent.RequestToken), d.Timeout(schema.TimeoutUpdate)); err != nil {
+		requestToken := aws.ToString(output.ProgressEvent.RequestToken)
+		waiter := cloudcontrol.NewResourceRequestSuccessWaiter(conn, func(o *cloudcontrol.ResourceRequestSuccessWaiterOptions) {
+			o.Retryable = retryGetResourceRequestStatus(nil)
+		})
+		if err := waiter.Wait(ctx, &cloudcontrol.GetResourceRequestStatusInput{RequestToken: aws.String(requestToken)}, d.Timeout(schema.TimeoutUpdate)); err != nil {
 			return sdkdiag.AppendErrorf(diags, "waiting for Cloud Control API (%s) Resource (%s) update: %s", typeName, d.Id(), err)
 		}
 	}
@@ -201,57 +201,49 @@ func resourceResourceUpdate(ctx context.Context, d *schema.ResourceData, meta in
 	return append(diags, resourceResourceRead(ctx, d, meta)...)
 }
 
-func resourceResourceDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceResourceDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-
 	conn := meta.(*conns.AWSClient).CloudControlClient(ctx)
 
 	typeName := d.Get("type_name").(string)
-	input := &cloudcontrol.DeleteResourceInput{
-		ClientToken: aws.String(id.UniqueId()),
+	input := cloudcontrol.DeleteResourceInput{
+		ClientToken: aws.String(create.UniqueId(ctx)),
 		Identifier:  aws.String(d.Id()),
 		TypeName:    aws.String(typeName),
 	}
-
 	if v, ok := d.GetOk(names.AttrRoleARN); ok {
 		input.RoleArn = aws.String(v.(string))
 	}
-
 	if v, ok := d.GetOk("type_version_id"); ok {
 		input.TypeVersionId = aws.String(v.(string))
 	}
 
 	log.Printf("[INFO] Deleting Cloud Control API (%s) Resource: %s", typeName, d.Id())
-	output, err := conn.DeleteResource(ctx, input)
-
+	output, err := conn.DeleteResource(ctx, &input)
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "deleting Cloud Control API (%s) Resource (%s): %s", typeName, d.Id(), err)
 	}
 
-	progressEvent, err := waitProgressEventOperationStatusSuccess(ctx, conn, aws.ToString(output.ProgressEvent.RequestToken), d.Timeout(schema.TimeoutDelete))
-
-	if progressEvent != nil && progressEvent.ErrorCode == types.HandlerErrorCodeNotFound {
-		return diags
-	}
-
-	if err != nil {
+	requestToken := aws.ToString(output.ProgressEvent.RequestToken)
+	waiter := cloudcontrol.NewResourceRequestSuccessWaiter(conn, func(o *cloudcontrol.ResourceRequestSuccessWaiterOptions) {
+		o.Retryable = retryGetResourceRequestStatus(nil)
+	})
+	if err := waiter.Wait(ctx, &cloudcontrol.GetResourceRequestStatusInput{RequestToken: aws.String(requestToken)}, d.Timeout(schema.TimeoutDelete)); err != nil {
 		return sdkdiag.AppendErrorf(diags, "waiting for Cloud Control API (%s) Resource (%s) delete: %s", typeName, d.Id(), err)
 	}
 
 	return diags
 }
 
-func resourceResourceCustomizeDiffGetSchema(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+func resourceResourceCustomizeDiffGetSchema(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
 	conn := meta.(*conns.AWSClient).CloudFormationClient(ctx)
 
 	resourceSchema := diff.Get(names.AttrSchema).(string)
-
 	if resourceSchema != "" {
 		return nil
 	}
 
 	typeName := diff.Get("type_name").(string)
-
 	output, err := tfcloudformation.FindTypeByName(ctx, conn, typeName)
 
 	if err != nil {
@@ -265,12 +257,11 @@ func resourceResourceCustomizeDiffGetSchema(ctx context.Context, diff *schema.Re
 	return nil
 }
 
-func resourceResourceCustomizeDiffSchemaDiff(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+func resourceResourceCustomizeDiffSchemaDiff(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
 	oldDesiredStateRaw, newDesiredStateRaw := diff.GetChange("desired_state")
 	newSchema := diff.Get(names.AttrSchema).(string)
 
 	newDesiredState, ok := newDesiredStateRaw.(string)
-
 	if !ok {
 		return fmt.Errorf("unexpected new desired_state value type: %T", newDesiredStateRaw)
 	}
@@ -307,7 +298,7 @@ func resourceResourceCustomizeDiffSchemaDiff(ctx context.Context, diff *schema.R
 		return fmt.Errorf("converting CloudFormation Resource Schema JSON: %w", err)
 	}
 
-	patches, err := jsonpatch.CreatePatch([]byte(oldDesiredStateRaw.(string)), []byte(newDesiredStateRaw.(string)))
+	patches, err := tfjson.CreatePatchFromStrings(oldDesiredStateRaw.(string), newDesiredState)
 
 	if err != nil {
 		return fmt.Errorf("creating desired_state JSON Patch: %w", err)
@@ -326,8 +317,8 @@ func resourceResourceCustomizeDiffSchemaDiff(ctx context.Context, diff *schema.R
 	return nil
 }
 
-func findResource(ctx context.Context, conn *cloudcontrol.Client, resourceID, typeName, typeVersionID, roleARN string) (*types.ResourceDescription, error) {
-	input := &cloudcontrol.GetResourceInput{
+func findResourceByFourPartKey(ctx context.Context, conn *cloudcontrol.Client, resourceID, typeName, typeVersionID, roleARN string) (*awstypes.ResourceDescription, error) {
+	input := cloudcontrol.GetResourceInput{
 		Identifier: aws.String(resourceID),
 		TypeName:   aws.String(typeName),
 	}
@@ -338,12 +329,15 @@ func findResource(ctx context.Context, conn *cloudcontrol.Client, resourceID, ty
 		input.TypeVersionId = aws.String(typeVersionID)
 	}
 
+	return findResource(ctx, conn, &input)
+}
+
+func findResource(ctx context.Context, conn *cloudcontrol.Client, input *cloudcontrol.GetResourceInput) (*awstypes.ResourceDescription, error) {
 	output, err := conn.GetResource(ctx, input)
 
-	if errs.IsA[*types.ResourceNotFoundException](err) {
+	if errs.IsA[*awstypes.ResourceNotFoundException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -351,8 +345,7 @@ func findResource(ctx context.Context, conn *cloudcontrol.Client, resourceID, ty
 	// These should be reported and fixed upstream over time, but for now work around the issue.
 	if errs.Contains(err, "not found") {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -361,87 +354,119 @@ func findResource(ctx context.Context, conn *cloudcontrol.Client, resourceID, ty
 	}
 
 	if output == nil || output.ResourceDescription == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output.ResourceDescription, nil
 }
 
-func findProgressEventByRequestToken(ctx context.Context, conn *cloudcontrol.Client, requestToken string) (*types.ProgressEvent, error) {
-	input := &cloudcontrol.GetResourceRequestStatusInput{
-		RequestToken: aws.String(requestToken),
-	}
+// retryGetResourceRequestStatus returns a custom retryable function for the GetResourceRequestStatus operation.
+func retryGetResourceRequestStatus(pProgressEvent **awstypes.ProgressEvent) func(context.Context, *cloudcontrol.GetResourceRequestStatusInput, *cloudcontrol.GetResourceRequestStatusOutput, error) (bool, error) {
+	return func(ctx context.Context, input *cloudcontrol.GetResourceRequestStatusInput, output *cloudcontrol.GetResourceRequestStatusOutput, err error) (bool, error) {
+		if err == nil {
+			if output == nil || output.ProgressEvent == nil {
+				return false, tfresource.NewEmptyResultError()
+			}
+			progressEvent := output.ProgressEvent
+			if pProgressEvent != nil {
+				*pProgressEvent = progressEvent
+			}
 
-	output, err := conn.GetResourceRequestStatus(ctx, input)
+			switch value := progressEvent.OperationStatus; value {
+			case awstypes.OperationStatusSuccess:
+				return false, nil
 
-	if errs.IsA[*types.RequestTokenNotFoundException](err) {
-		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			case awstypes.OperationStatusCancelComplete:
+				return false, waiterError(string(value), aws.ToString(progressEvent.StatusMessage))
+
+			case awstypes.OperationStatusFailed:
+				if progressEvent.ErrorCode == awstypes.HandlerErrorCodeNotFound && progressEvent.Operation == awstypes.OperationDelete {
+					// Resource not found error on delete is OK.
+					return false, nil
+				}
+
+				// Retry on throttling errors
+				if progressEvent.ErrorCode == awstypes.HandlerErrorCodeThrottling {
+					return true, err
+				}
+
+				// Build enhanced error message with hook information
+				waiterErr := waiterError(string(value), aws.ToString(progressEvent.StatusMessage))
+				waiterErr.withErrorCode(string(progressEvent.ErrorCode))
+
+				// Add hook information if available
+				if len(output.HooksProgressEvent) > 0 {
+					for _, hookEvent := range output.HooksProgressEvent {
+						hookStatus := aws.ToString(hookEvent.HookStatus)
+						// HOOK_COMPLETE_FAILED: The Hook invocation is complete with a failed result.
+						// HOOK_FAILED: The Hook invocation didn't complete successfully.
+						if hookStatus == "HOOK_COMPLETE_FAILED" || hookStatus == "HOOK_FAILED" {
+							waiterErr.withHookEvent(hookEvent)
+						}
+					}
+				}
+
+				return false, waiterErr
+			}
 		}
-	}
 
-	if err != nil {
-		return nil, err
-	}
+		if errs.IsA[*awstypes.RequestTokenNotFoundException](err) {
+			return true, nil
+		}
 
-	if output == nil || output.ProgressEvent == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return true, err
 	}
-
-	return output.ProgressEvent, nil
 }
 
-func statusProgressEventOperation(ctx context.Context, conn *cloudcontrol.Client, requestToken string) retry.StateRefreshFunc {
-	return func() (interface{}, string, error) {
-		output, err := findProgressEventByRequestToken(ctx, conn, requestToken)
-
-		if tfresource.NotFound(err) {
-			return nil, "", nil
-		}
-
-		if err != nil {
-			return nil, "", err
-		}
-
-		return output, string(output.OperationStatus), nil
-	}
+type waiterResultError struct {
+	errorCode  string
+	errorMsg   string
+	hookErrors []string
 }
 
-func waitProgressEventOperationStatusSuccess(ctx context.Context, conn *cloudcontrol.Client, requestToken string, timeout time.Duration) (*types.ProgressEvent, error) {
-	stateConf := &retry.StateChangeConf{
-		Pending: enum.Slice(types.OperationStatusInProgress, types.OperationStatusPending),
-		Target:  enum.Slice(types.OperationStatusSuccess),
-		Refresh: statusProgressEventOperation(ctx, conn, requestToken),
-		Timeout: timeout,
+func (e *waiterResultError) Error() string {
+	if e.errorCode != "" {
+		e.errorMsg += fmt.Sprintf(". ErrorCode: %s", e.errorCode)
 	}
 
-	outputRaw, err := stateConf.WaitForStateContext(ctx)
-
-	if output, ok := outputRaw.(*types.ProgressEvent); ok {
-		if output.OperationStatus == types.OperationStatusFailed {
-			tfresource.SetLastError(err, fmt.Errorf("%s: %s", output.ErrorCode, aws.ToString(output.StatusMessage)))
-		}
-
-		return output, err
+	if len(e.hookErrors) > 0 {
+		e.errorMsg += ". Hook failures: " + strings.Join(e.hookErrors, "; ")
 	}
 
-	return nil, err
+	return e.errorMsg
+}
+
+func waiterError(status, msg string) *waiterResultError {
+	e := waiterResultError{}
+	e.errorMsg = fmt.Sprintf("waiter state transitioned to %s. StatusMessage: %s", status, msg)
+
+	return &e
+}
+
+func (e *waiterResultError) withErrorCode(code string) {
+	e.errorCode = code
+}
+
+func (e *waiterResultError) withHookEvent(hookEvent awstypes.HookProgressEvent) {
+	e.hookErrors = append(
+		e.hookErrors,
+		fmt.Sprintf("HookName: %s, HookArn: %s, HookVersion: %s, Time: %s, HookMessage: %s",
+			aws.ToString(hookEvent.HookTypeName),
+			aws.ToString(hookEvent.HookTypeArn),
+			aws.ToString(hookEvent.HookTypeVersionId),
+			aws.ToTime(hookEvent.HookEventTime).Format(time.RFC3339),
+			aws.ToString(hookEvent.HookStatusMessage),
+		),
+	)
 }
 
 // patchDocument returns a JSON Patch document describing the difference between `old` and `new`.
 func patchDocument(old, new string) (string, error) {
-	patch, err := jsonpatch.CreatePatch([]byte(old), []byte(new))
+	patch, err := tfjson.CreatePatchFromStrings(old, new)
 
 	if err != nil {
 		return "", err
 	}
 
-	b, err := json.Marshal(patch)
-
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
+	return tfjson.EncodeToString(patch)
 }

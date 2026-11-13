@@ -1,13 +1,35 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package dms
 
 // Exports for use in tests only.
 var (
-	TaskSettingsEqual             = taskSettingsEqual
-	ValidEndpointID               = validEndpointID
-	ValidReplicationInstanceID    = validReplicationInstanceID
-	ValidReplicationSubnetGroupID = validReplicationSubnetGroupID
-	ValidReplicationTaskID        = validReplicationTaskID
+	ResourceCertificate            = resourceCertificate
+	ResourceDataProvider           = newDataProviderResource
+	ResourceEndpoint               = resourceEndpoint
+	ResourceEventSubscription      = resourceEventSubscription
+	ResourceInstanceProfile        = newInstanceProfileResource
+	ResourceMigrationProject       = newMigrationProjectResource
+	ResourceReplicationConfig      = resourceReplicationConfig
+	ResourceReplicationInstance    = resourceReplicationInstance
+	ResourceReplicationSubnetGroup = resourceReplicationSubnetGroup
+	ResourceReplicationTask        = resourceReplicationTask
+	ResourceS3Endpoint             = resourceS3Endpoint
+
+	FindCertificateByID            = findCertificateByID
+	FindDataProviderByARN          = findDataProviderByARN
+	FindEndpointByID               = findEndpointByID
+	FindEventSubscriptionByName    = findEventSubscriptionByName
+	FindInstanceProfileByARN       = findInstanceProfileByARN
+	FindMigrationProjectByARN      = findMigrationProjectByARN
+	FindReplicationConfigByARN     = findReplicationConfigByARN
+	FindReplicationInstanceByID    = findReplicationInstanceByID
+	FindReplicationSubnetGroupByID = findReplicationSubnetGroupByID
+	FindReplicationTaskByID        = findReplicationTaskByID
+	TaskSettingsEqual              = taskSettingsEqual
+	ValidEndpointID                = validEndpointID
+	ValidReplicationInstanceID     = validReplicationInstanceID
+	ValidReplicationSubnetGroupID  = validReplicationSubnetGroupID
+	ValidReplicationTaskID         = validReplicationTaskID
 )

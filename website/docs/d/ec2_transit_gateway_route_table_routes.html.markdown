@@ -8,7 +8,7 @@ description: |-
 
 # Data Source: aws_ec2_transit_gateway_route_table_routes
 
-Provides informations for routes of a specific transit gateway, such as state, type, cidr
+Provides informations for routes of a specific transit gateway, such as state, type, CIDR
 
 ## Example Usage
 
@@ -132,7 +132,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment_accepter" "trusted_accounts_eu-
   provider                                        = aws.eu-central-1
   lifecycle {
     prevent_destroy = false
-    ignore_changes  = [subnet_ids, id, dns_support, ipv6_support, transit_gateway_id, vpc_id, vpc_owner_id]
+    ignore_changes  = [subnet_ids, id, dns_support, security_group_referencing_support, ipv6_support, transit_gateway_id, vpc_id, vpc_owner_id]
   }
 }
 
@@ -170,8 +170,9 @@ resource "aws_ec2_transit_gateway_route" "default-region-to-eu-central-1" {
 
 ## Argument Reference
 
-The following arguments are required:
+This data source supports the following arguments:
 
+* `region` - (Optional) Region where this resource will be [managed](https://docs.aws.amazon.com/general/latest/gr/rande.html#regional-endpoints). Defaults to the Region set in the [provider configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#aws-configuration-reference).
 * `filter` - (Required) Custom filter block as described below.
 * `transit_gateway_route_table_id` - (Required) Identifier of EC2 Transit Gateway Route Table.
 
@@ -182,11 +183,11 @@ which take the following arguments:
   [the underlying AWS API](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_SearchTransitGatewayRoutes.html).
 * `values` - (Required) Set of values that are accepted for the given field.
 
-## Attributes Reference
+## Attribute Reference
 
-In addition to all arguments above, the following attributes are exported:
+This data source exports the following attributes in addition to the arguments above:
 
-* `id` - The transit gateway route table id suffixed by `-routes`
+* `id` - The transit gateway route table ID suffixed by `-routes`
 * `routes` - List of Transit Gateway Routes.
 
 #### Routes list Attributes Reference
@@ -194,5 +195,5 @@ In addition to all arguments above, the following attributes are exported:
 * `destination_cidr_block` - The CIDR used for route destination matches.
 * `prefix_list_id` - The ID of the prefix list used for destination matches.
 * `state` - The current state of the route, can be `active`, `deleted`, `pending`, `blackhole`, `deleting`.
-* `transit_gateway_route_table_announcement_id` - The id of the transit gateway route table announcement, most of the time it is an empty string.
+* `transit_gateway_route_table_announcement_id` - The ID of the transit gateway route table announcement, most of the time it is an empty string.
 * `type` - The type of the route, can be `propagated` or `static`.

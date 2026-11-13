@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package rds
 
@@ -11,15 +13,18 @@ import (
 	"time"
 
 	"github.com/YakDriver/regexache"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/rds"
-	"github.com/hashicorp/aws-sdk-go-base/v2/awsv1shim/v2/tfawserr"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/rds"
+	"github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
+	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
@@ -28,17 +33,18 @@ import (
 
 // @SDKResource("aws_rds_cluster_instance", name="Cluster Instance")
 // @Tags(identifierAttribute="arn")
+// @IdentityAttribute("identifier")
+// @Testing(existsType="github.com/aws/aws-sdk-go-v2/service/rds/types;types.DBInstance")
+// @Testing(importIgnore="apply_immediately;force_destroy")
+// @Testing(plannableImportAction="NoOp")
+// @Testing(preIdentityVersion="v6.64.0")
 // @Testing(tagsTest=false)
-func ResourceClusterInstance() *schema.Resource {
+func resourceClusterInstance() *schema.Resource {
 	return &schema.Resource{
 		CreateWithoutTimeout: resourceClusterInstanceCreate,
 		ReadWithoutTimeout:   resourceClusterInstanceRead,
 		UpdateWithoutTimeout: resourceClusterInstanceUpdate,
 		DeleteWithoutTimeout: resourceClusterInstanceDelete,
-
-		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
-		},
 
 		Timeouts: &schema.ResourceTimeout{
 			Create: schema.DefaultTimeout(90 * time.Minute),
@@ -46,208 +52,219 @@ func ResourceClusterInstance() *schema.Resource {
 			Delete: schema.DefaultTimeout(90 * time.Minute),
 		},
 
-		Schema: map[string]*schema.Schema{
-			// apply_immediately is used to determine when the update modifications take place.
-			// See http://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html
-			names.AttrApplyImmediately: {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrAutoMinorVersionUpgrade: {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Default:  true,
-			},
-			names.AttrAvailabilityZone: {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-				Computed: true,
-			},
-			"ca_cert_identifier": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			names.AttrClusterIdentifier: {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-			"copy_tags_to_snapshot": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Default:  false,
-			},
-			"custom_iam_instance_profile": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringMatch(regexache.MustCompile(`^AWSRDSCustom.*$`), "must begin with AWSRDSCustom"),
-			},
-			"db_parameter_group_name": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"db_subnet_group_name": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-				Computed: true,
-			},
-			"dbi_resource_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrEndpoint: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrEngine: {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.Any(
-					validation.StringMatch(regexache.MustCompile(fmt.Sprintf(`^%s.*$`, InstanceEngineCustomPrefix)), fmt.Sprintf("must begin with %s", InstanceEngineCustomPrefix)),
-					validation.StringInSlice(ClusterInstanceEngine_Values(), false),
-				),
-			},
-			names.AttrEngineVersion: {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"engine_version_actual": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrIdentifier: {
-				Type:          schema.TypeString,
-				Optional:      true,
-				Computed:      true,
-				ForceNew:      true,
-				ConflictsWith: []string{"identifier_prefix"},
-				ValidateFunc:  validIdentifier,
-			},
-			"identifier_prefix": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				Computed:      true,
-				ForceNew:      true,
-				ConflictsWith: []string{names.AttrIdentifier},
-				ValidateFunc:  validIdentifierPrefix,
-			},
-			"instance_class": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			names.AttrKMSKeyID: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"monitoring_interval": {
-				Type:     schema.TypeInt,
-				Optional: true,
-				Default:  0,
-			},
-			"monitoring_role_arn": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"network_type": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"performance_insights_enabled": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			"performance_insights_kms_key_id": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				Computed:     true,
-				ValidateFunc: verify.ValidARN,
-			},
-			"performance_insights_retention_period": {
-				Type:     schema.TypeInt,
-				Optional: true,
-				Computed: true,
-				ValidateFunc: validation.Any(
-					validation.IntInSlice([]int{7, 731}),
-					validation.All(
-						validation.IntAtLeast(7),
-						validation.IntAtMost(731),
-						validation.IntDivisibleBy(31),
-					),
-				),
-			},
-			names.AttrPort: {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"preferred_backup_window": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				Computed:     true,
-				ValidateFunc: verify.ValidOnceADayWindowFormat,
-			},
-			names.AttrPreferredMaintenanceWindow: {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-				StateFunc: func(v interface{}) string {
-					if v != nil {
-						value := v.(string)
-						return strings.ToLower(value)
-					}
-					return ""
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				// apply_immediately is used to determine when the update modifications take place.
+				// See http://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html
+				names.AttrApplyImmediately: {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Computed: true,
 				},
-				ValidateFunc: verify.ValidOnceAWeekWindowFormat,
-			},
-			"promotion_tier": {
-				Type:     schema.TypeInt,
-				Optional: true,
-				Default:  0,
-			},
-			names.AttrPubliclyAccessible: {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			names.AttrStorageEncrypted: {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			"writer": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrAutoMinorVersionUpgrade: {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Default:  true,
+				},
+				names.AttrAvailabilityZone: {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+					Computed: true,
+				},
+				"ca_cert_identifier": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				names.AttrClusterIdentifier: {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				"copy_tags_to_snapshot": {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Default:  false,
+				},
+				"custom_iam_instance_profile": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.StringMatch(regexache.MustCompile(`^AWSRDSCustom.*$`), "must begin with AWSRDSCustom"),
+				},
+				"db_parameter_group_name": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"db_subnet_group_name": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+					Computed: true,
+				},
+				"dbi_resource_id": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrEndpoint: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrEngine: {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+					ValidateFunc: validation.Any(
+						validation.StringMatch(regexache.MustCompile(fmt.Sprintf(`^%s.*$`, instanceEngineCustomPrefix)), fmt.Sprintf("must begin with %s", instanceEngineCustomPrefix)),
+						validation.StringInSlice(clusterInstanceEngine_Values(), false),
+					),
+				},
+				names.AttrEngineVersion: {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"engine_version_actual": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrForceDestroy: {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Default:  false,
+				},
+				names.AttrIdentifier: {
+					Type:          schema.TypeString,
+					Optional:      true,
+					Computed:      true,
+					ForceNew:      true,
+					ConflictsWith: []string{"identifier_prefix"},
+					ValidateFunc:  validIdentifier,
+				},
+				"identifier_prefix": {
+					Type:          schema.TypeString,
+					Optional:      true,
+					Computed:      true,
+					ForceNew:      true,
+					ConflictsWith: []string{names.AttrIdentifier},
+					ValidateFunc:  validIdentifierPrefix,
+				},
+				"instance_class": {
+					Type:     schema.TypeString,
+					Required: true,
+				},
+				names.AttrKMSKeyID: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"monitoring_interval": {
+					Type:     schema.TypeInt,
+					Optional: true,
+					Default:  0,
+				},
+				"monitoring_role_arn": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"network_type": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"performance_insights_enabled": {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Computed: true,
+				},
+				"performance_insights_kms_key_id": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					Computed:     true,
+					ValidateFunc: verify.ValidARN,
+				},
+				"performance_insights_retention_period": {
+					Type:     schema.TypeInt,
+					Optional: true,
+					Computed: true,
+					ValidateFunc: validation.Any(
+						validation.IntInSlice([]int{7, 731}),
+						validation.All(
+							validation.IntAtLeast(7),
+							validation.IntAtMost(731),
+							validation.IntDivisibleBy(31),
+						),
+					),
+				},
+				names.AttrPort: {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"preferred_backup_window": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					Computed:     true,
+					ValidateFunc: verify.ValidOnceADayWindowFormat,
+				},
+				names.AttrPreferredMaintenanceWindow: {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+					StateFunc: func(v any) string {
+						if v != nil {
+							value := v.(string)
+							return strings.ToLower(value)
+						}
+						return ""
+					},
+					ValidateFunc: verify.ValidOnceAWeekWindowFormat,
+				},
+				"promotion_tier": {
+					Type:     schema.TypeInt,
+					Optional: true,
+					Default:  0,
+				},
+				names.AttrPubliclyAccessible: {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Computed: true,
+				},
+				names.AttrStorageEncrypted: {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				"warning_event_categories": {
+					Type:     schema.TypeSet,
+					Optional: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"writer": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+			}
 		},
-
-		CustomizeDiff: verify.SetTagsDiff,
 	}
 }
 
-func resourceClusterInstanceCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceClusterInstanceCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-	conn := meta.(*conns.AWSClient).RDSConn(ctx)
+	conn := meta.(*conns.AWSClient).RDSClient(ctx)
 
 	clusterID := d.Get(names.AttrClusterIdentifier).(string)
 	identifier := create.NewNameGenerator(
 		create.WithConfiguredName(d.Get(names.AttrIdentifier).(string)),
 		create.WithConfiguredPrefix(d.Get("identifier_prefix").(string)),
 		create.WithDefaultPrefix("tf-"),
-	).Generate()
+	).Generate(ctx)
+	createStart := time.Now().UTC()
 	input := &rds.CreateDBInstanceInput{
 		AutoMinorVersionUpgrade: aws.Bool(d.Get(names.AttrAutoMinorVersionUpgrade).(bool)),
 		CopyTagsToSnapshot:      aws.Bool(d.Get("copy_tags_to_snapshot").(bool)),
@@ -255,7 +272,7 @@ func resourceClusterInstanceCreate(ctx context.Context, d *schema.ResourceData, 
 		DBInstanceClass:         aws.String(d.Get("instance_class").(string)),
 		DBInstanceIdentifier:    aws.String(identifier),
 		Engine:                  aws.String(d.Get(names.AttrEngine).(string)),
-		PromotionTier:           aws.Int64(int64(d.Get("promotion_tier").(int))),
+		PromotionTier:           aws.Int32(int32(d.Get("promotion_tier").(int))),
 		PubliclyAccessible:      aws.Bool(d.Get(names.AttrPubliclyAccessible).(bool)),
 		Tags:                    getTagsIn(ctx),
 	}
@@ -281,7 +298,7 @@ func resourceClusterInstanceCreate(ctx context.Context, d *schema.ResourceData, 
 	}
 
 	if v, ok := d.GetOk("monitoring_interval"); ok {
-		input.MonitoringInterval = aws.Int64(int64(v.(int)))
+		input.MonitoringInterval = aws.Int32(int32(v.(int)))
 	}
 
 	if v, ok := d.GetOk("monitoring_role_arn"); ok {
@@ -297,7 +314,7 @@ func resourceClusterInstanceCreate(ctx context.Context, d *schema.ResourceData, 
 	}
 
 	if v, ok := d.GetOk("performance_insights_retention_period"); ok {
-		input.PerformanceInsightsRetentionPeriod = aws.Int64(int64(v.(int)))
+		input.PerformanceInsightsRetentionPeriod = aws.Int32(int32(v.(int)))
 	}
 
 	if v, ok := d.GetOk("preferred_backup_window"); ok {
@@ -309,8 +326,8 @@ func resourceClusterInstanceCreate(ctx context.Context, d *schema.ResourceData, 
 	}
 
 	outputRaw, err := tfresource.RetryWhenAWSErrMessageContains(ctx, propagationTimeout,
-		func() (interface{}, error) {
-			return conn.CreateDBInstanceWithContext(ctx, input)
+		func(ctx context.Context) (any, error) {
+			return conn.CreateDBInstance(ctx, input)
 		},
 		errCodeInvalidParameterValue, "IAM role ARN value is invalid or does not include the required permissions")
 	if err != nil {
@@ -319,74 +336,83 @@ func resourceClusterInstanceCreate(ctx context.Context, d *schema.ResourceData, 
 
 	output := outputRaw.(*rds.CreateDBInstanceOutput)
 
-	d.SetId(aws.StringValue(output.DBInstance.DBInstanceIdentifier))
+	d.SetId(aws.ToString(output.DBInstance.DBInstanceIdentifier))
 
-	if _, err := waitDBClusterInstanceCreated(ctx, conn, d.Id(), d.Timeout(schema.TimeoutCreate)); err != nil {
+	if _, err := waitDBClusterInstanceAvailable(ctx, conn, d.Id(), d.Timeout(schema.TimeoutCreate)); err != nil {
 		return sdkdiag.AppendErrorf(diags, "waiting for RDS Cluster Instance (%s) create: %s", d.Id(), err)
 	}
 
-	if v, ok := d.GetOk("ca_cert_identifier"); ok && v.(string) != aws.StringValue(output.DBInstance.CACertificateIdentifier) {
+	if v, ok := d.GetOk("ca_cert_identifier"); ok && v.(string) != aws.ToString(output.DBInstance.CACertificateIdentifier) {
 		input := &rds.ModifyDBInstanceInput{
 			ApplyImmediately:        aws.Bool(true),
 			CACertificateIdentifier: aws.String(v.(string)),
 			DBInstanceIdentifier:    aws.String(d.Id()),
 		}
 
-		if _, err := conn.ModifyDBInstanceWithContext(ctx, input); err != nil {
+		if _, err := conn.ModifyDBInstance(ctx, input); err != nil {
 			return sdkdiag.AppendErrorf(diags, "updating RDS Cluster Instance (%s): %s", d.Id(), err)
 		}
 
-		if _, err := waitDBInstanceAvailableSDKv1(ctx, conn, d.Id(), d.Timeout(schema.TimeoutUpdate)); err != nil {
+		if _, err := waitDBInstanceAvailable(ctx, conn, d.Id(), d.Timeout(schema.TimeoutUpdate)); err != nil {
 			return sdkdiag.AppendErrorf(diags, "waiting for RDS Cluster Instance (%s) update: %s", d.Id(), err)
 		}
 
-		_, err = conn.RebootDBInstanceWithContext(ctx, &rds.RebootDBInstanceInput{
+		_, err = conn.RebootDBInstance(ctx, &rds.RebootDBInstanceInput{
 			DBInstanceIdentifier: aws.String(d.Id()),
 		})
+
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "rebooting RDS Cluster Instance (%s): %s", d.Id(), err)
 		}
 
-		if _, err := waitDBInstanceAvailableSDKv1(ctx, conn, d.Id(), d.Timeout(schema.TimeoutUpdate)); err != nil {
+		if _, err := waitDBInstanceAvailable(ctx, conn, d.Id(), d.Timeout(schema.TimeoutUpdate)); err != nil {
 			return sdkdiag.AppendErrorf(diags, "waiting for RDS Cluster Instance (%s) update: %s", d.Id(), err)
 		}
+	}
+
+	if v, ok := d.GetOk("warning_event_categories"); ok {
+		diags = append(diags, surfaceEvents(ctx, conn, d.Id(), types.SourceTypeDbInstance, createStart,
+			flex.ExpandStringValueSet(v.(*schema.Set)))...)
 	}
 
 	return append(diags, resourceClusterInstanceRead(ctx, d, meta)...)
 }
 
-func resourceClusterInstanceRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceClusterInstanceRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-	conn := meta.(*conns.AWSClient).RDSConn(ctx)
+	conn := meta.(*conns.AWSClient).RDSClient(ctx)
 
-	db, err := findDBInstanceByIDSDKv1(ctx, conn, d.Id())
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	db, err := findDBInstanceByID(ctx, conn, d.Id())
+
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] RDS Cluster Instance (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
 	}
+
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "reading RDS Cluster Instance (%s): %s", d.Id(), err)
 	}
 
-	dbClusterID := aws.StringValue(db.DBClusterIdentifier)
-
+	dbClusterID := aws.ToString(db.DBClusterIdentifier)
 	if dbClusterID == "" {
 		return sdkdiag.AppendErrorf(diags, "DBClusterIdentifier is missing from RDS Cluster Instance (%s). The aws_db_instance resource should be used for non-Aurora instances", d.Id())
 	}
 
-	dbc, err := FindDBClusterByID(ctx, conn, dbClusterID)
+	dbc, err := findDBClusterByID(ctx, conn, dbClusterID)
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "reading RDS Cluster (%s): %s", dbClusterID, err)
 	}
 
-	for _, m := range dbc.DBClusterMembers {
-		if aws.StringValue(m.DBInstanceIdentifier) == d.Id() {
-			if aws.BoolValue(m.IsClusterWriter) {
-				d.Set("writer", true)
-			} else {
-				d.Set("writer", false)
-			}
+	resourceClusterInstanceFlatten(ctx, db, d, dbc)
+
+	return diags
+}
+
+func resourceClusterInstanceFlatten(ctx context.Context, db *types.DBInstance, d *schema.ResourceData, dbClusters *types.DBCluster) {
+	for _, m := range dbClusters.DBClusterMembers {
+		if aws.ToString(m.DBInstanceIdentifier) == d.Id() {
+			d.Set("writer", m.IsClusterWriter)
 		}
 	}
 
@@ -402,7 +428,7 @@ func resourceClusterInstanceRead(ctx context.Context, d *schema.ResourceData, me
 	d.Set(names.AttrClusterIdentifier, db.DBClusterIdentifier)
 	d.Set("copy_tags_to_snapshot", db.CopyTagsToSnapshot)
 	d.Set("custom_iam_instance_profile", db.CustomIamInstanceProfile)
-	if len(db.DBParameterGroups) > 0 && db.DBParameterGroups[0] != nil {
+	if len(db.DBParameterGroups) > 0 {
 		d.Set("db_parameter_group_name", db.DBParameterGroups[0].DBParameterGroupName)
 	}
 	if db.DBSubnetGroup != nil {
@@ -411,7 +437,7 @@ func resourceClusterInstanceRead(ctx context.Context, d *schema.ResourceData, me
 	d.Set("dbi_resource_id", db.DbiResourceId)
 	d.Set(names.AttrEngine, db.Engine)
 	d.Set(names.AttrIdentifier, db.DBInstanceIdentifier)
-	d.Set("identifier_prefix", create.NamePrefixFromName(aws.StringValue(db.DBInstanceIdentifier)))
+	d.Set("identifier_prefix", create.NamePrefixFromName(aws.ToString(db.DBInstanceIdentifier)))
 	d.Set("instance_class", db.DBInstanceClass)
 	d.Set(names.AttrKMSKeyID, db.KmsKeyId)
 	d.Set("monitoring_interval", db.MonitoringInterval)
@@ -427,14 +453,11 @@ func resourceClusterInstanceRead(ctx context.Context, d *schema.ResourceData, me
 	d.Set(names.AttrStorageEncrypted, db.StorageEncrypted)
 
 	clusterSetResourceDataEngineVersionFromClusterInstance(d, db)
-
 	setTagsOut(ctx, db.TagList)
-
-	return diags
 }
 
-func resourceClusterInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) (diags diag.Diagnostics) {
-	conn := meta.(*conns.AWSClient).RDSConn(ctx)
+func resourceClusterInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta any) (diags diag.Diagnostics) {
+	conn := meta.(*conns.AWSClient).RDSClient(ctx)
 
 	if d.HasChangesExcept(names.AttrTags, names.AttrTagsAll) {
 		input := &rds.ModifyDBInstanceInput{
@@ -463,7 +486,7 @@ func resourceClusterInstanceUpdate(ctx context.Context, d *schema.ResourceData, 
 		}
 
 		if d.HasChange("monitoring_interval") {
-			input.MonitoringInterval = aws.Int64(int64(d.Get("monitoring_interval").(int)))
+			input.MonitoringInterval = aws.Int32(int32(d.Get("monitoring_interval").(int)))
 		}
 
 		if d.HasChange("monitoring_role_arn") {
@@ -478,7 +501,7 @@ func resourceClusterInstanceUpdate(ctx context.Context, d *schema.ResourceData, 
 			}
 
 			if v, ok := d.GetOk("performance_insights_retention_period"); ok {
-				input.PerformanceInsightsRetentionPeriod = aws.Int64(int64(v.(int)))
+				input.PerformanceInsightsRetentionPeriod = aws.Int32(int32(v.(int)))
 			}
 		}
 
@@ -491,57 +514,79 @@ func resourceClusterInstanceUpdate(ctx context.Context, d *schema.ResourceData, 
 		}
 
 		if d.HasChange("promotion_tier") {
-			input.PromotionTier = aws.Int64(int64(d.Get("promotion_tier").(int)))
+			input.PromotionTier = aws.Int32(int32(d.Get("promotion_tier").(int)))
 		}
 
 		if d.HasChange(names.AttrPubliclyAccessible) {
 			input.PubliclyAccessible = aws.Bool(d.Get(names.AttrPubliclyAccessible).(bool))
 		}
 
-		log.Printf("[DEBUG] Updating RDS Cluster Instance: %s", input)
+		modifyStart := time.Now().UTC()
+
 		_, err := tfresource.RetryWhenAWSErrMessageContains(ctx, propagationTimeout,
-			func() (interface{}, error) {
-				return conn.ModifyDBInstanceWithContext(ctx, input)
+			func(ctx context.Context) (any, error) {
+				return conn.ModifyDBInstance(ctx, input)
 			},
 			errCodeInvalidParameterValue, "IAM role ARN value is invalid or does not include the required permissions")
+
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "updating RDS Cluster Instance (%s): %s", d.Id(), err)
 		}
 
-		if _, err := waitDBClusterInstanceUpdated(ctx, conn, d.Id(), d.Timeout(schema.TimeoutUpdate)); err != nil {
+		if _, err := waitDBClusterInstanceAvailable(ctx, conn, d.Id(), d.Timeout(schema.TimeoutUpdate)); err != nil {
 			return sdkdiag.AppendErrorf(diags, "waiting for RDS Cluster Instance (%s) update: %s", d.Id(), err)
+		}
+
+		if v, ok := d.GetOk("warning_event_categories"); ok {
+			diags = append(diags, surfaceEvents(ctx, conn, d.Id(), types.SourceTypeDbInstance, modifyStart,
+				flex.ExpandStringValueSet(v.(*schema.Set)))...)
 		}
 	}
 
 	return append(diags, resourceClusterInstanceRead(ctx, d, meta)...)
 }
 
-func resourceClusterInstanceDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceClusterInstanceDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-	conn := meta.(*conns.AWSClient).RDSConn(ctx)
+	conn := meta.(*conns.AWSClient).RDSClient(ctx)
 
 	input := &rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier: aws.String(d.Id()),
 	}
 
 	// Automatically set skip_final_snapshot = true for RDS Custom instances
-	if strings.HasPrefix(d.Get(names.AttrEngine).(string), InstanceEngineCustomPrefix) {
+	if strings.HasPrefix(d.Get(names.AttrEngine).(string), instanceEngineCustomPrefix) {
 		log.Printf("[DEBUG] RDS Custom engine detected (%s) applying SkipFinalSnapshot: %s", d.Get(names.AttrEngine).(string), "true")
 		input.SkipFinalSnapshot = aws.Bool(true)
 	}
 
 	log.Printf("[DEBUG] Deleting RDS Cluster Instance: %s", d.Id())
-	_, err := tfresource.RetryWhenAWSErrMessageContains(ctx, d.Timeout(schema.TimeoutDelete),
-		func() (interface{}, error) {
-			return conn.DeleteDBInstanceWithContext(ctx, input)
+	_, err := tfresource.RetryWhenIsAErrorMessageContains[any, *types.InvalidDBClusterStateFault](ctx, d.Timeout(schema.TimeoutDelete),
+		func(ctx context.Context) (any, error) {
+			return conn.DeleteDBInstance(ctx, input)
 		},
-		rds.ErrCodeInvalidDBClusterStateFault, "Delete the replica cluster before deleting")
+		"Delete the replica cluster before deleting")
 
-	if tfawserr.ErrCodeEquals(err, rds.ErrCodeDBInstanceNotFoundFault) {
+	if errs.IsAErrorMessageContains[*types.InvalidDBClusterStateFault](err, "Cannot delete the last instance of the read replica DB cluster") && d.Get(names.AttrForceDestroy).(bool) {
+		_, err = conn.PromoteReadReplicaDBCluster(ctx, &rds.PromoteReadReplicaDBClusterInput{
+			DBClusterIdentifier: aws.String(d.Get(names.AttrClusterIdentifier).(string)),
+		})
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "promoting read replica to primary for RDS Cluster (%s): %s", d.Id(), err)
+		}
+
+		if _, err := waitDBClusterAvailable(ctx, conn, d.Id(), false, d.Timeout(schema.TimeoutDelete)); err != nil {
+			return sdkdiag.AppendErrorf(diags, "waiting for RDS Cluster (%s) update: %s", d.Id(), err)
+		}
+
+		_, err = conn.DeleteDBInstance(ctx, input)
+	}
+
+	if errs.IsA[*types.DBInstanceNotFoundFault](err) {
 		return diags
 	}
 
-	if err != nil && !tfawserr.ErrMessageContains(err, rds.ErrCodeInvalidDBInstanceStateFault, "is already being deleted") {
+	if err != nil && !errs.IsAErrorMessageContains[*types.InvalidDBInstanceStateFault](err, "is already being deleted") {
 		return sdkdiag.AppendErrorf(diags, "deleting RDS Cluster Instance (%s): %s", d.Id(), err)
 	}
 
@@ -552,12 +597,68 @@ func resourceClusterInstanceDelete(ctx context.Context, d *schema.ResourceData, 
 	return diags
 }
 
-func clusterSetResourceDataEngineVersionFromClusterInstance(d *schema.ResourceData, c *rds.DBInstance) {
+func waitDBClusterInstanceAvailable(ctx context.Context, conn *rds.Client, id string, timeout time.Duration) (*types.DBInstance, error) { //nolint:unparam
+	stateConf := &retry.StateChangeConf{
+		Pending: []string{
+			instanceStatusBackingUp,
+			instanceStatusConfiguringEnhancedMonitoring,
+			instanceStatusConfiguringIAMDatabaseAuth,
+			instanceStatusConfiguringLogExports,
+			instanceStatusCreating,
+			instanceStatusMaintenance,
+			instanceStatusModifying,
+			instanceStatusRebooting,
+			instanceStatusRenaming,
+			instanceStatusResettingMasterCredentials,
+			instanceStatusStarting,
+			instanceStatusUpgrading,
+		},
+		Target:     []string{instanceStatusAvailable, instanceStatusStorageOptimization},
+		Refresh:    statusDBInstance(conn, id),
+		Timeout:    timeout,
+		MinTimeout: 10 * time.Second,
+		Delay:      30 * time.Second,
+	}
+
+	outputRaw, err := stateConf.WaitForStateContext(ctx)
+
+	if output, ok := outputRaw.(*types.DBInstance); ok {
+		return output, err
+	}
+
+	return nil, err
+}
+
+func waitDBClusterInstanceDeleted(ctx context.Context, conn *rds.Client, id string, timeout time.Duration) (*types.DBInstance, error) {
+	stateConf := &retry.StateChangeConf{
+		Pending: []string{
+			instanceStatusConfiguringLogExports,
+			instanceStatusDeletePreCheck,
+			instanceStatusDeleting,
+			instanceStatusModifying,
+		},
+		Target:     []string{},
+		Refresh:    statusDBInstance(conn, id),
+		Timeout:    timeout,
+		MinTimeout: 10 * time.Second,
+		Delay:      30 * time.Second,
+	}
+
+	outputRaw, err := stateConf.WaitForStateContext(ctx)
+
+	if output, ok := outputRaw.(*types.DBInstance); ok {
+		return output, err
+	}
+
+	return nil, err
+}
+
+func clusterSetResourceDataEngineVersionFromClusterInstance(d *schema.ResourceData, c *types.DBInstance) {
 	oldVersion := d.Get(names.AttrEngineVersion).(string)
-	newVersion := aws.StringValue(c.EngineVersion)
+	newVersion := aws.ToString(c.EngineVersion)
 	var pendingVersion string
 	if c.PendingModifiedValues != nil && c.PendingModifiedValues.EngineVersion != nil {
-		pendingVersion = aws.StringValue(c.PendingModifiedValues.EngineVersion)
+		pendingVersion = aws.ToString(c.PendingModifiedValues.EngineVersion)
 	}
 	compareActualEngineVersion(d, oldVersion, newVersion, pendingVersion)
 }

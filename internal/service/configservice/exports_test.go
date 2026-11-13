@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package configservice
@@ -10,6 +10,7 @@ var (
 	ResourceConfigurationAggregator      = resourceConfigurationAggregator
 	ResourceConfigurationRecorder        = resourceConfigurationRecorder
 	ResourceConformancePack              = resourceConformancePack
+	ResourceConnector                    = newConnectorResource
 	ResourceDeliveryChannel              = resourceDeliveryChannel
 	ResourceOrganizationConformancePack  = resourceOrganizationConformancePack
 	ResourceOrganizationCustomPolicyRule = resourceOrganizationCustomPolicyRule
@@ -24,6 +25,7 @@ var (
 	FindConfigurationRecorderByName              = findConfigurationRecorderByName
 	FindConfigurationRecorderStatusByName        = findConfigurationRecorderStatusByName
 	FindConformancePackByName                    = findConformancePackByName
+	FindConnectorByARN                           = findConnectorByARN
 	FindDeliveryChannelByName                    = findDeliveryChannelByName
 	FindOrganizationConformancePackByName        = findOrganizationConformancePackByName
 	FindOrganizationCustomPolicyRuleByName       = findOrganizationCustomPolicyRuleByName

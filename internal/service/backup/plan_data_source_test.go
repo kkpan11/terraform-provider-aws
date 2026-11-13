@@ -1,13 +1,14 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package backup_test
 
 import (
 	"fmt"
+	"regexp"
 	"testing"
 
-	sdkacctest "github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/YakDriver/regexache"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-provider-aws/internal/acctest"
 	"github.com/hashicorp/terraform-provider-aws/names"
@@ -17,9 +18,9 @@ func TestAccBackupPlanDataSource_basic(t *testing.T) {
 	ctx := acctest.Context(t)
 	datasourceName := "data.aws_backup_plan.test"
 	resourceName := "aws_backup_plan.test"
-	rInt := sdkacctest.RandInt()
+	rInt := acctest.RandInt(t)
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.BackupServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
@@ -31,6 +32,12 @@ func TestAccBackupPlanDataSource_basic(t *testing.T) {
 					resource.TestCheckResourceAttrPair(datasourceName, names.AttrARN, resourceName, names.AttrARN),
 					resource.TestCheckResourceAttrPair(datasourceName, names.AttrVersion, resourceName, names.AttrVersion),
 					resource.TestCheckResourceAttrPair(datasourceName, acctest.CtTagsPercent, resourceName, acctest.CtTagsPercent),
+					resource.TestCheckResourceAttrPair(datasourceName, acctest.CtRulePound, resourceName, acctest.CtRulePound),
+					resource.TestCheckResourceAttrPair(datasourceName, names.AttrRule, resourceName, names.AttrRule),
+					resource.TestCheckResourceAttrPair(datasourceName, "scan_setting", resourceName, "scan_setting"),
+					resource.TestMatchTypeSetElemNestedAttrs(datasourceName, "rule.*", map[string]*regexp.Regexp{
+						"rule_id": regexache.MustCompile(`^[a-f0-9-]+$`),
+					}),
 				),
 			},
 		},

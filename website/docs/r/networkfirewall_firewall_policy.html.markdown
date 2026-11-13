@@ -13,6 +13,10 @@ Provides an AWS Network Firewall Firewall Policy Resource
 ## Example Usage
 
 ```terraform
+data "aws_region" "current" {}
+data "aws_partition" "current" {}
+data "aws_caller_identity" "current" {}
+
 resource "aws_networkfirewall_firewall_policy" "example" {
   name = "example"
 
@@ -23,7 +27,7 @@ resource "aws_networkfirewall_firewall_policy" "example" {
       priority     = 1
       resource_arn = aws_networkfirewall_rule_group.example.arn
     }
-    tls_inspection_configuration_arn = "arn:aws:network-firewall:REGION:ACCT:tls-configuration/example"
+    tls_inspection_configuration_arn = "arn:${data.aws_partition.current.partition}:network-firewall:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:tls-configuration/example"
   }
 
   tags = {
@@ -33,7 +37,7 @@ resource "aws_networkfirewall_firewall_policy" "example" {
 }
 ```
 
-## Policy with a HOME_NET Override
+### Policy with a HOME_NET Override
 
 ```terraform
 resource "aws_networkfirewall_firewall_policy" "example" {
@@ -63,10 +67,34 @@ resource "aws_networkfirewall_firewall_policy" "example" {
 }
 ```
 
-## Policy with a Custom Action for Stateless Inspection
+### Policy with Route 53 Resolved IP Validation
 
 ```terraform
-resource "aws_networkfirewall_firewall_policy" "test" {
+resource "aws_route53_resolver_firewall_rule_group" "example" {
+  name = "example"
+}
+
+resource "aws_networkfirewall_firewall_policy" "example" {
+  name = "example"
+
+  firewall_policy {
+    stateless_default_actions          = ["aws:forward_to_sfe"]
+    stateless_fragment_default_actions = ["aws:forward_to_sfe"]
+
+    route53_resolved_ip_validation {
+      action                      = "DROP"
+      dns_expiry_exception_policy = "CONTINUE"
+      dns_firewall_rule_group_id  = aws_route53_resolver_firewall_rule_group.example.id
+      source_ip_ranges            = ["10.0.0.0/16"]
+    }
+  }
+}
+```
+
+### Policy with a Custom Action for Stateless Inspection
+
+```terraform
+resource "aws_networkfirewall_firewall_policy" "example" {
   name = "example"
 
   firewall_policy {
@@ -87,18 +115,62 @@ resource "aws_networkfirewall_firewall_policy" "test" {
 }
 ```
 
+### Policy with Active Threat Defense in Action Order
+
+```terraform
+data "aws_region" "current" {}
+data "aws_partition" "current" {}
+
+resource "aws_networkfirewall_firewall_policy" "example" {
+  name = "example"
+
+  firewall_policy {
+    stateless_fragment_default_actions = ["aws:drop"]
+    stateless_default_actions          = ["aws:pass"]
+
+    stateful_rule_group_reference {
+      deep_threat_inspection = true
+      resource_arn           = "arn:${data.aws_partition.current.partition}:network-firewall:${data.aws_region.current.region}:aws-managed:stateful-rulegroup/AttackInfrastructureActionOrder"
+    }
+  }
+}
+```
+
+### Policy with Active Threat Defense in Strict Order
+
+```terraform
+data "aws_region" "current" {}
+data "aws_partition" "current" {}
+
+resource "aws_networkfirewall_firewall_policy" "example" {
+  name = "example"
+
+  firewall_policy {
+    stateless_fragment_default_actions = ["aws:drop"]
+    stateless_default_actions          = ["aws:pass"]
+
+    stateful_engine_options {
+      rule_order = "STRICT_ORDER"
+    }
+
+    stateful_rule_group_reference {
+      deep_threat_inspection = false
+      priority               = 1
+      resource_arn           = "arn:${data.aws_partition.current.partition}:network-firewall:${data.aws_region.current.region}:aws-managed:stateful-rulegroup/AttackInfrastructureStrictOrder"
+    }
+  }
+}
+```
+
 ## Argument Reference
 
 This resource supports the following arguments:
 
+* `region` - (Optional) Region where this resource will be [managed](https://docs.aws.amazon.com/general/latest/gr/rande.html#regional-endpoints). Defaults to the Region set in the [provider configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#aws-configuration-reference).
 * `description` - (Optional) A friendly description of the firewall policy.
-
 * `encryption_configuration` - (Optional) KMS encryption configuration settings. See [Encryption Configuration](#encryption-configuration) below for details.
-
 * `firewall_policy` - (Required) A configuration block describing the rule groups and policy actions to use in the firewall policy. See [Firewall Policy](#firewall-policy) below for details.
-
 * `name` - (Required, Forces new resource) A friendly name of the firewall policy.
-
 * `tags` - (Optional) Map of resource tags to associate with the resource. If configured with a provider [`default_tags` configuration block](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#default_tags-configuration-block) present, tags with matching keys will overwrite those defined at the provider-level.
 
 ### Encryption Configuration
@@ -112,9 +184,13 @@ This resource supports the following arguments:
 
 The `firewall_policy` block supports the following arguments:
 
+* `enable_tls_session_holding` - (Optional) Boolean indicating whether to prevent TCP and TLS packets from reaching destination servers until TLS Inspection has evaluated Server Name Indication (SNI) rules. If `true`, `tls_inspection_configuration_arn` is required. Default value: `false`.
+
 * `policy_variables` - (Optional). Contains variables that you can use to override default Suricata settings in your firewall policy. See [Rule Variables](#rule-variables) for details.
 
-* `stateful_default_actions` - (Optional) Set of actions to take on a packet if it does not match any stateful rules in the policy. This can only be specified if the policy has a `stateful_engine_options` block with a `rule_order` value of `STRICT_ORDER`. You can specify one of either or neither values of `aws:drop_strict` or `aws:drop_established`, as well as any combination of `aws:alert_strict` and `aws:alert_established`.
+* `route53_resolved_ip_validation` - (Optional) Resolved IP validation settings, which check that a connection's destination IP address was returned by the Route 53 Resolver in a VPC associated with a DNS Firewall rule group. See [Route 53 Resolved IP Validation](#route-53-resolved-ip-validation) below for details.
+
+* `stateful_default_actions` - (Optional) Set of actions to take on a packet if it does not match any stateful rules in the policy. This can only be specified if the policy has a `stateful_engine_options` block with a `rule_order` value of `STRICT_ORDER`. Value values: `aws:drop_strict`, `aws:drop_established`, `aws:drop_established_app_layer`, `aws:alert_strict`, `aws:alert_established, `aws:alert_established_app_layer`. For more information, see [Strict evaluation order](https://docs.aws.amazon.com/network-firewall/latest/developerguide/suricata-rule-evaluation-order.html#suricata-strict-rule-evaluation-order.html) in the AWS Network Firewall Developer Guide.
 
 * `stateful_engine_options` - (Optional) A configuration block that defines options on how the policy handles stateful rules. See [Stateful Engine Options](#stateful-engine-options) below for details.
 
@@ -146,23 +222,48 @@ The `ip_set` block supports the following argument:
 
 * `definition` - (Required) Set of IPv4 or IPv6 addresses in CIDR notation to use for the Suricata `HOME_NET` variable.
 
+### Route 53 Resolved IP Validation
+
+The `route53_resolved_ip_validation` block supports the following arguments. For more information, see [Route 53 resolved IP validation](https://docs.aws.amazon.com/network-firewall/latest/developerguide/route53-resolved-ip-validation-policy-setting.html) in the AWS Network Firewall Developer Guide.
+
+* `action` - (Required) Action to take on connections that fail validation. Allowed values are: `ALERT`, `DROP`, and `REJECT`. `ALERT` requires firewall logging. `REJECT` sends a TCP reset; Network Firewall drops non-TCP traffic.
+* `dns_expiry_exception_policy` - (Required) Action to take when the recorded DNS resolution has expired from the resolved IP cache but traffic continues. Allowed values are: `CONTINUE`, `DROP`, and `REJECT`. `CONTINUE` treats the expired resolution as valid.
+* `dns_firewall_rule_group_id` - (Required) ID of the Route 53 Resolver DNS Firewall rule group, such as `aws_route53_resolver_firewall_rule_group.example.id`. DNS responses from the Route 53 Resolver in VPCs associated with this rule group are used for validation. Changing this value swaps the managed association asynchronously; the provider waits for the policy to return to `ACTIVE`.
+* `bypass_destination_validation_ip_ranges` - (Optional) Set of destination IPv4 or IPv6 CIDR blocks that are exempt from the policy-level check. Use `/32` or `/128` for a single address. Valid number of entries is between `1` and `100`. Doesn't affect rules that use the `AWS_ROUTE_53_RESOLVED_DOMAIN` target type.
+* `source_ip_ranges` - (Optional) Set of client source IPv4 or IPv6 CIDR blocks whose connections are subject to the policy-level validation check. Use `/32` or `/128` for a single address. Valid number of entries is between `1` and `100`. If omitted, validation applies to the CIDR ranges of the firewall's VPC and of any additional VPCs attached to the firewall. Doesn't affect stateful rules that use the `AWS_ROUTE_53_RESOLVED_DOMAIN` target type or `aws_route_53_resolved_domain` rule keyword; those rules still evaluate traffic regardless of these source ranges.
+
+~> **Note:** An empty list can't be set for `source_ip_ranges` or `bypass_destination_validation_ip_ranges`. The AWS API treats an empty `source_ip_ranges` list as "validate no source addresses", which this resource doesn't support. Omit the argument instead.
+
+-> **Note:** Removing the `route53_resolved_ip_validation` block turns off resolved IP validation and removes the managed DNS Firewall rule group association.
+
 ### Stateful Engine Options
 
 The `stateful_engine_options` block supports the following argument:
 
 ~> **NOTE:** If the `STRICT_ORDER` rule order is specified, this firewall policy can only reference stateful rule groups that utilize `STRICT_ORDER`.
 
+* `flow_timeouts` - (Optional) Amount of time that can pass without any traffic sent through the firewall before the firewall determines that the connection is idle.
+
 * `rule_order` - Indicates how to manage the order of stateful rule evaluation for the policy. Default value: `DEFAULT_ACTION_ORDER`. Valid values: `DEFAULT_ACTION_ORDER`, `STRICT_ORDER`.
 
 * `stream_exception_policy` - Describes how to treat traffic which has broken midstream. Default value: `DROP`. Valid values: `DROP`, `CONTINUE`, `REJECT`.
+
+### Flow Timeouts
+
+The `flow_timeouts` block supports the following argument:
+
+* `tcp_idle_timeout_seconds` - Number of seconds that can pass without any TCP traffic sent through the firewall before the firewall determines that the connection is idle. After the idle timeout passes, data packets are dropped, however, the next TCP SYN packet is considered a new flow and is processed by the firewall. Clients or targets can use TCP keepalive packets to reset the idle timeout. Default value: `350`.
 
 ### Stateful Rule Group Reference
 
 The `stateful_rule_group_reference` block supports the following arguments:
 
+* `deep_threat_inspection` - (Optional) Whether to enable deep threat inspection, which allows AWS to analyze service logs of network traffic processed by these rule groups to identify threat indicators across customers. AWS will use these threat indicators to improve the active threat defense managed rule groups and protect the security of AWS customers and services. This only applies to active threat defense maanaged rule groups.
+
+  For details, refer to [AWS active threat defense for AWS Network Firewall](https://docs.aws.amazon.com/network-firewall/latest/developerguide/aws-managed-rule-groups-atd.html) in the AWS Network Firewall Developer Guide.
 * `priority` - (Optional) An integer setting that indicates the order in which to apply the stateful rule groups in a single policy. This argument must be specified if the policy has a `stateful_engine_options` block with a `rule_order` value of `STRICT_ORDER`. AWS Network Firewall applies each stateful rule group to a packet starting with the group that has the lowest priority setting.
 
-* `resource_arn` - (Required) The Amazon Resource Name (ARN) of the stateful rule group.
+* `resource_arn` - (Required) ARN of the stateful rule group.
 
 * `override` - (Optional) Configuration block for override values
 
@@ -184,7 +285,7 @@ The `stateless_rule_group_reference` block supports the following arguments:
 
 * `priority` - (Required) An integer setting that indicates the order in which to run the stateless rule groups in a single policy. AWS Network Firewall applies each stateless rule group to a packet starting with the group that has the lowest priority setting.
 
-* `resource_arn` - (Required) The Amazon Resource Name (ARN) of the stateless rule group.
+* `resource_arn` - (Required) ARN of the stateless rule group.
 
 ### Action Definition
 
@@ -208,9 +309,9 @@ The `dimension` block supports the following argument:
 
 This resource exports the following attributes in addition to the arguments above:
 
-* `id` - The Amazon Resource Name (ARN) that identifies the firewall policy.
+* `id` - ARN that identifies the firewall policy.
 
-* `arn` - The Amazon Resource Name (ARN) that identifies the firewall policy.
+* `arn` - ARN that identifies the firewall policy.
 
 * `tags_all` - A map of tags assigned to the resource, including those inherited from the provider [`default_tags` configuration block](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#default_tags-configuration-block).
 

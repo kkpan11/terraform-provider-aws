@@ -1,3 +1,6 @@
+<!-- Copyright IBM Corp. 2014, 2026 -->
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 <!-- markdownlint-configure-file { "code-block-style": false } -->
 # Adding Resource Filtering Support
 
@@ -33,14 +36,14 @@ Add the AWS Go SDK service name (e.g., `rds`) to `sliceServiceNames` in `interna
 
 === "Terraform Plugin SDK V2"
     ```go
-    input := &ec2.DescribeInternetGatewaysInput{}
+    input := ec2.DescribeInternetGatewaysInput{}
 
     // Filters based on attributes.
     filters := namevaluesfilters.New(map[string]string{
     	"internet-gateway-id": d.Get("internet_gateway_id").(string),
     })
     // Add filters based on key-value tags (N.B. Not applicable to all AWS services that support filtering)
-    filters.Add(namevaluesfilters.EC2Tags(keyvaluetags.New(d.Get("tags").(map[string]interface{})).IgnoreAWS().IgnoreConfig(ignoreTagsConfig).Map()))
+    filters.Add(namevaluesfilters.EC2Tags(keyvaluetags.New(d.Get("tags").(map[string]any)).IgnoreAWS().IgnoreConfig(ignoreTagsConfig).Map()))
     // Add filters based on the custom filtering "filter" attribute.
     filters.Add(d.Get("filter").(*schema.Set))
 
@@ -52,13 +55,12 @@ Add the AWS Go SDK service name (e.g., `rds`) to `sliceServiceNames` in `interna
 - In the resource's equivalent data source documentation (e.g., `website/docs/d/internet_gateway.html.markdown`), add the following to the arguments reference:
 
 ```markdown
-* `filter` - (Optional) Custom filter block as described below.
+* `filter` - (Optional) One or more configuration blocks for filtering. See [`filter` Block](#filter-block) below.
 
-More complex filters can be expressed using one or more `filter` sub-blocks, which take the following arguments:
+### `filter` Block
 
-* `name` - (Required) Name of the field to filter by, as defined by
-  [the underlying AWS API](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInternetGateways.html).
+The `filter` block supports the following arguments:
 
-* `values` - (Required) Set of values that are accepted for the given field.
-  An Internet Gateway will be selected if any one of the given values matches.
+* `name` - (Required) Name of the field to filter by, as defined by [the underlying AWS API](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInternetGateways.html).
+* `values` - (Required) Set of values that are accepted for the given field. An Internet Gateway will be selected if any one of the given values matches.
 ```

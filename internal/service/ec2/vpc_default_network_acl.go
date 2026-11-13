@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package ec2
 
@@ -12,7 +14,6 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
-	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
@@ -36,7 +37,7 @@ func resourceDefaultNetworkACL() *schema.Resource {
 		DeleteWithoutTimeout: schema.NoopContext,
 
 		Importer: &schema.ResourceImporter{
-			StateContext: func(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+			StateContext: func(ctx context.Context, d *schema.ResourceData, meta any) ([]*schema.ResourceData, error) {
 				d.Set("default_network_acl_id", d.Id())
 
 				return []*schema.ResourceData{d}, nil
@@ -96,17 +97,15 @@ func resourceDefaultNetworkACL() *schema.Resource {
 				},
 			}
 		},
-
-		CustomizeDiff: verify.SetTagsDiff,
 	}
 }
 
-func resourceDefaultNetworkACLCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics { // nosemgrep:ci.semgrep.tags.calling-UpdateTags-in-resource-create
+func resourceDefaultNetworkACLCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics { // nosemgrep:ci.semgrep.tags.calling-UpdateTags-in-resource-create
 	var diags diag.Diagnostics
-	conn := meta.(*conns.AWSClient).EC2Conn(ctx)
+	conn := meta.(*conns.AWSClient).EC2Client(ctx)
 
 	naclID := d.Get("default_network_acl_id").(string)
-	nacl, err := FindNetworkACLByID(ctx, conn, naclID)
+	nacl, err := findNetworkACLByID(ctx, conn, naclID)
 
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "reading EC2 Network ACL (%s): %s", naclID, err)
@@ -118,6 +117,17 @@ func resourceDefaultNetworkACLCreate(ctx context.Context, d *schema.ResourceData
 
 	d.SetId(naclID)
 
+	// Configure tags first to allow for IAM policies based on tags (issue #44640)
+	ignoreTagsConfig := meta.(*conns.AWSClient).IgnoreTagsConfig(ctx)
+	newTags := keyValueTags(ctx, getTagsIn(ctx))
+	oldTags := keyValueTags(ctx, nacl.Tags).IgnoreSystem(names.EC2).IgnoreConfig(ignoreTagsConfig)
+
+	if !oldTags.Equal(newTags) {
+		if err := updateTags(ctx, conn, d.Id(), oldTags, newTags); err != nil {
+			return sdkdiag.AppendErrorf(diags, "updating EC2 Default Network ACL (%s) tags: %s", d.Id(), err)
+		}
+	}
+
 	// Revoke all default and pre-existing rules on the default network ACL.
 	if err := deleteNetworkACLEntries(ctx, conn, d.Id(), nacl.Entries); err != nil {
 		return sdkdiag.AppendFromErr(diags, err)
@@ -127,23 +137,12 @@ func resourceDefaultNetworkACLCreate(ctx context.Context, d *schema.ResourceData
 		return sdkdiag.AppendFromErr(diags, err)
 	}
 
-	// Configure tags.
-	ignoreTagsConfig := meta.(*conns.AWSClient).IgnoreTagsConfig
-	newTags := KeyValueTags(ctx, getTagsIn(ctx))
-	oldTags := KeyValueTags(ctx, nacl.Tags).IgnoreSystem(names.EC2).IgnoreConfig(ignoreTagsConfig)
-
-	if !oldTags.Equal(newTags) {
-		if err := updateTags(ctx, conn, d.Id(), oldTags, newTags); err != nil {
-			return sdkdiag.AppendErrorf(diags, "updating EC2 Default Network ACL (%s) tags: %s", d.Id(), err)
-		}
-	}
-
 	return append(diags, resourceNetworkACLRead(ctx, d, meta)...)
 }
 
-func resourceDefaultNetworkACLUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceDefaultNetworkACLUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-	conn := meta.(*conns.AWSClient).EC2Conn(ctx)
+	conn := meta.(*conns.AWSClient).EC2Client(ctx)
 
 	// Subnets *must* belong to a Network ACL. Subnets are not "removed" from
 	// Network ACLs, instead their association is replaced. In a normal

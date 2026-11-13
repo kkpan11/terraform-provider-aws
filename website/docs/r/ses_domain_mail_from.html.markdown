@@ -42,7 +42,7 @@ resource "aws_route53_record" "example_ses_domain_mail_from_txt" {
   name    = aws_ses_domain_mail_from.example.mail_from_domain
   type    = "TXT"
   ttl     = "600"
-  records = ["v=spf1 include:amazonses.com -all"]
+  records = ["v=spf1 include:amazonses.com ~all"]
 }
 ```
 
@@ -69,13 +69,14 @@ The following arguments are required:
 
 The following arguments are optional:
 
-* `behavior_on_mx_failure` - (Optional) The action that you want Amazon SES to take if it cannot successfully read the required MX record when you send an email. Defaults to `UseDefaultValue`. See the [SES API documentation](https://docs.aws.amazon.com/ses/latest/APIReference/API_SetIdentityMailFromDomain.html) for more information.
+* `behavior_on_mx_failure` - (Optional) Action that you want Amazon SES to take if it cannot successfully read the required MX record when you send an email. Defaults to `UseDefaultValue`. See the [SES API documentation](https://docs.aws.amazon.com/ses/latest/APIReference/API_SetIdentityMailFromDomain.html) for more information.
+* `region` - (Optional) Region where this resource will be [managed](https://docs.aws.amazon.com/general/latest/gr/rande.html#regional-endpoints). Defaults to the Region set in the [provider configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#aws-configuration-reference).
 
 ## Attribute Reference
 
 This resource exports the following attributes in addition to the arguments above:
 
-* `id` - The domain name.
+* `id` - Domain name.
 
 ## Import
 

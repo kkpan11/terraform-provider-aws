@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package directconnect_test
@@ -6,92 +6,163 @@ package directconnect_test
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/directconnect"
-	sdkacctest "github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	awstypes "github.com/aws/aws-sdk-go-v2/service/directconnect/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-provider-aws/internal/acctest"
-	"github.com/hashicorp/terraform-provider-aws/internal/conns"
+	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
+	tfdirectconnect "github.com/hashicorp/terraform-provider-aws/internal/service/directconnect"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
 func TestAccDirectConnectBGPPeer_basic(t *testing.T) {
 	ctx := acctest.Context(t)
-	key := "DX_VIRTUAL_INTERFACE_ID"
-	vifId := os.Getenv(key)
-	if vifId == "" {
-		t.Skipf("Environment variable %s is not set", key)
-	}
-	bgpAsn := sdkacctest.RandIntRange(64512, 65534)
+	vifID := acctest.SkipIfEnvVarNotSet(t, "DX_VIRTUAL_INTERFACE_ID")
+	bgpAsn := acctest.RandIntRange(t, 64512, 65534)
+	resourceName := "aws_dx_bgp_peer.test"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.DirectConnectServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckBGPPeerDestroy(ctx),
+		CheckDestroy:             testAccCheckBGPPeerDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccBGPPeerConfig_basic(vifId, bgpAsn),
+				Config: testAccBGPPeerConfig_basic(vifID, bgpAsn),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckBGPPeerExists("aws_dx_bgp_peer.foo"),
-					resource.TestCheckResourceAttr("aws_dx_bgp_peer.foo", "address_family", "ipv6"),
+					testAccCheckBGPPeerExists(ctx, t, resourceName),
+					resource.TestCheckResourceAttr(resourceName, "address_family", "ipv6"),
 				),
 			},
 		},
 	})
 }
 
-func testAccCheckBGPPeerDestroy(ctx context.Context) resource.TestCheckFunc {
+func TestAccDirectConnectBGPPeer_disappears(t *testing.T) {
+	ctx := acctest.Context(t)
+	vifID := acctest.SkipIfEnvVarNotSet(t, "DX_VIRTUAL_INTERFACE_ID")
+	bgpAsn := acctest.RandIntRange(t, 64512, 65534)
+	resourceName := "aws_dx_bgp_peer.test"
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.DirectConnectServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckBGPPeerDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccBGPPeerConfig_basic(vifID, bgpAsn),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckBGPPeerExists(ctx, t, resourceName),
+					acctest.CheckSDKResourceDisappears(ctx, t, tfdirectconnect.ResourceBGPPeer(), resourceName),
+				),
+				ExpectNonEmptyPlan: true,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionCreate),
+					},
+					PostApplyPostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionCreate),
+					},
+				},
+			},
+		},
+	})
+}
+
+func testAccCheckBGPPeerDestroy(ctx context.Context, t *testing.T) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		conn := acctest.Provider.Meta().(*conns.AWSClient).DirectConnectConn(ctx)
+		conn := acctest.ProviderMeta(ctx, t).DirectConnectClient(ctx)
 
 		for _, rs := range s.RootModule().Resources {
 			if rs.Type != "aws_dx_bgp_peer" {
 				continue
 			}
-			input := &directconnect.DescribeVirtualInterfacesInput{
-				VirtualInterfaceId: aws.String(rs.Primary.Attributes["virtual_interface_id"]),
+
+			_, err := tfdirectconnect.FindBGPPeerByThreePartKeyWithInt64ASN(ctx, conn, rs.Primary.Attributes["virtual_interface_id"], awstypes.AddressFamily(rs.Primary.Attributes["address_family"]), testAccBGPPeerEffectiveASN(rs.Primary.Attributes))
+
+			if retry.NotFound(err) {
+				continue
 			}
 
-			resp, err := conn.DescribeVirtualInterfacesWithContext(ctx, input)
 			if err != nil {
 				return err
 			}
-			for _, peer := range resp.VirtualInterfaces[0].BgpPeers {
-				if aws.StringValue(peer.AddressFamily) == rs.Primary.Attributes["address_family"] &&
-					strconv.Itoa(int(aws.Int64Value(peer.Asn))) == rs.Primary.Attributes["bgp_asn"] &&
-					aws.StringValue(peer.BgpPeerState) != directconnect.BGPPeerStateDeleted {
-					return fmt.Errorf("[DESTROY ERROR] Dx BGP peer (%s) not deleted", rs.Primary.ID)
-				}
-			}
+
+			return fmt.Errorf("Direct Connect BGP Peer %s still exists", rs.Primary.ID)
 		}
+
 		return nil
 	}
 }
 
-func testAccCheckBGPPeerExists(name string) resource.TestCheckFunc {
+func testAccCheckBGPPeerExists(ctx context.Context, t *testing.T, n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[name]
+		rs, ok := s.RootModule().Resources[n]
 		if !ok {
-			return fmt.Errorf("Not found: %s", name)
+			return fmt.Errorf("Not found: %s", n)
 		}
 
-		return nil
+		conn := acctest.ProviderMeta(ctx, t).DirectConnectClient(ctx)
+
+		_, err := tfdirectconnect.FindBGPPeerByThreePartKeyWithInt64ASN(ctx, conn, rs.Primary.Attributes["virtual_interface_id"], awstypes.AddressFamily(rs.Primary.Attributes["address_family"]), testAccBGPPeerEffectiveASN(rs.Primary.Attributes))
+
+		return err
 	}
 }
 
-func testAccBGPPeerConfig_basic(vifId string, bgpAsn int) string {
+func testAccBGPPeerEffectiveASN(attributes map[string]string) int64 {
+	if asnLong := attributes["bgp_asn_long"]; asnLong != "" {
+		return flex.StringValueToInt64Value(asnLong)
+	}
+
+	return int64(flex.StringValueToInt32Value(attributes["bgp_asn"]))
+}
+
+func testAccBGPPeerConfig_basic(vifID string, bgpAsn int) string {
 	return fmt.Sprintf(`
-resource "aws_dx_bgp_peer" "foo" {
-  virtual_interface_id = "%s"
+resource "aws_dx_bgp_peer" "test" {
+  virtual_interface_id = %[1]q
 
   address_family = "ipv6"
-  bgp_asn        = %d
+  bgp_asn        = %[2]d
 }
-`, vifId, bgpAsn)
+`, vifID, bgpAsn)
+}
+
+func TestAccDirectConnectBGPPeer_bgpASNLong(t *testing.T) {
+	ctx := acctest.Context(t)
+	vifID := acctest.SkipIfEnvVarNotSet(t, "DX_VIRTUAL_INTERFACE_ID")
+	resourceName := "aws_dx_bgp_peer.test"
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.DirectConnectServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckBGPPeerDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccBGPPeerConfig_bgpASNLong(vifID),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckBGPPeerExists(ctx, t, resourceName),
+					resource.TestCheckResourceAttr(resourceName, "bgp_asn_long", "4200012999"),
+				),
+			},
+		},
+	})
+}
+
+func testAccBGPPeerConfig_bgpASNLong(vifID string) string {
+	return fmt.Sprintf(`
+resource "aws_dx_bgp_peer" "test" {
+  virtual_interface_id = %[1]q
+
+  address_family = "ipv6"
+  bgp_asn_long   = "4200012999"
+}
+`, vifID)
 }

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package fms_test
@@ -43,6 +43,16 @@ func TestRemoveEmptyFieldsFromJSON(t *testing.T) {
 			want:     `{}`,
 		},
 		{
+			testName: "nested empty arrays and nulls",
+			input:    `{"values":[[[]],[],[1,[]],null],"object":{"empty":[],"null":null}}`,
+			want:     `{"values":[[1]],"object":{}}`,
+		},
+		{
+			testName: "empty objects retained",
+			input:    `{"empty":{},"becomesEmpty":{"null":null}}`,
+			want:     `{"empty":{},"becomesEmpty":{}}`,
+		},
+		{
 			testName: "AWS DNS_FIREWALL example",
 			input:    "{\"type\":\"DNS_FIREWALL\",\"preProcessRuleGroups\":[{\"ruleGroupId\":\"rslvr-frg-1\",\"priority\":10}],\"postProcessRuleGroups\":[{\"ruleGroupId\":\"rslvr-frg-2\",\"priority\":9911}]}",
 			want:     "{\"type\":\"DNS_FIREWALL\",\"preProcessRuleGroups\":[{\"ruleGroupId\":\"rslvr-frg-1\",\"priority\":10}],\"postProcessRuleGroups\":[{\"ruleGroupId\":\"rslvr-frg-2\",\"priority\":9911}]}",
@@ -60,7 +70,6 @@ func TestRemoveEmptyFieldsFromJSON(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.testName, func(t *testing.T) {
 			t.Parallel()
 

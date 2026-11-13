@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package batch_test
@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"testing"
 
-	sdkacctest "github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
@@ -18,11 +17,11 @@ import (
 
 func TestAccBatchComputeEnvironmentDataSource_basic(t *testing.T) {
 	ctx := acctest.Context(t)
-	rName := sdkacctest.RandomWithPrefix("tf_acc_test_")
+	rName := acctest.RandomWithPrefix(t, "tf_acc_test_")
 	resourceName := "aws_batch_compute_environment.test"
 	dataSourceName := "data.aws_batch_compute_environment.by_name"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t); testAccPreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.BatchServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
@@ -31,12 +30,13 @@ func TestAccBatchComputeEnvironmentDataSource_basic(t *testing.T) {
 				Config: testAccComputeEnvironmentDataSourceConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrARN, resourceName, names.AttrARN),
-					resource.TestCheckResourceAttrPair(dataSourceName, "compute_environment_name", resourceName, "compute_environment_name"),
+					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrName, resourceName, names.AttrName),
 					resource.TestCheckResourceAttrPair(dataSourceName, "ecs_cluster_arn", resourceName, "ecs_cluster_arn"),
 					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrServiceRole, resourceName, names.AttrServiceRole),
 					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrState, resourceName, names.AttrState),
 					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrType, resourceName, names.AttrType),
-					resource.TestCheckResourceAttr(dataSourceName, "update_policy.#", acctest.Ct0),
+					resource.TestCheckResourceAttrPair(dataSourceName, "unmanaged_vcpus", resourceName, "unmanaged_vcpus"),
+					resource.TestCheckResourceAttr(dataSourceName, "update_policy.#", "0"),
 				),
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownValue(dataSourceName, tfjsonpath.New(names.AttrTags), knownvalue.MapExact(map[string]knownvalue.Check{})),
@@ -48,11 +48,11 @@ func TestAccBatchComputeEnvironmentDataSource_basic(t *testing.T) {
 
 func TestAccBatchComputeEnvironmentDataSource_basicUpdatePolicy(t *testing.T) {
 	ctx := acctest.Context(t)
-	rName := sdkacctest.RandomWithPrefix("tf_acc_test_")
+	rName := acctest.RandomWithPrefix(t, "tf_acc_test_")
 	resourceName := "aws_batch_compute_environment.test"
 	dataSourceName := "data.aws_batch_compute_environment.by_name"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t); testAccPreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.BatchServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
@@ -61,10 +61,35 @@ func TestAccBatchComputeEnvironmentDataSource_basicUpdatePolicy(t *testing.T) {
 				Config: testAccComputeEnvironmentDataSourceConfig_updatePolicy(rName, 30, false),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrARN, resourceName, names.AttrARN),
-					resource.TestCheckResourceAttr(dataSourceName, "update_policy.#", acctest.Ct1),
-					resource.TestCheckResourceAttr(dataSourceName, "update_policy.0.%", acctest.Ct2),
+					resource.TestCheckResourceAttr(dataSourceName, "update_policy.#", "1"),
+					resource.TestCheckResourceAttr(dataSourceName, "update_policy.0.%", "2"),
 					resource.TestCheckResourceAttr(dataSourceName, "update_policy.0.terminate_jobs_on_update", acctest.CtFalse),
 					resource.TestCheckResourceAttr(dataSourceName, "update_policy.0.job_execution_timeout_minutes", "30"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccBatchComputeEnvironmentDataSource_unmanagedVCPUs(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	resourceName := "aws_batch_compute_environment.test"
+	dataSourceName := "data.aws_batch_compute_environment.by_name"
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t); testAccPreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.BatchServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccComputeEnvironmentDataSourceConfig_unmanagedVCPUs(rName, 256),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrARN, resourceName, names.AttrARN),
+					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrName, resourceName, names.AttrName),
+					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrType, resourceName, names.AttrType),
+					resource.TestCheckResourceAttrPair(dataSourceName, "unmanaged_vcpus", resourceName, "unmanaged_vcpus"),
+					resource.TestCheckResourceAttr(dataSourceName, "unmanaged_vcpus", "256"),
 				),
 			},
 		},
@@ -74,6 +99,10 @@ func TestAccBatchComputeEnvironmentDataSource_basicUpdatePolicy(t *testing.T) {
 func testAccComputeEnvironmentDataSourceConfig_basic(rName string) string {
 	return fmt.Sprintf(`
 data "aws_partition" "current" {}
+
+data "aws_service_principal" "ec2" {
+  service_name = "ec2"
+}
 
 resource "aws_iam_role" "ecs_instance_role" {
   name = "ecs_%[1]s"
@@ -86,7 +115,7 @@ resource "aws_iam_role" "ecs_instance_role" {
       "Action": "sts:AssumeRole",
       "Effect": "Allow",
       "Principal": {
-        "Service": "ec2.${data.aws_partition.current.dns_suffix}"
+        "Service": "${data.aws_service_principal.ec2.name}"
       }
     }
   ]
@@ -118,7 +147,7 @@ resource "aws_subnet" "sample" {
 }
 
 resource "aws_batch_compute_environment" "test" {
-  compute_environment_name = "%[1]s"
+  name = "%[1]s"
 
   compute_resources {
     instance_role = aws_iam_instance_profile.ecs_instance_role.arn
@@ -145,7 +174,7 @@ resource "aws_batch_compute_environment" "test" {
 }
 
 data "aws_batch_compute_environment" "by_name" {
-  compute_environment_name = aws_batch_compute_environment.test.compute_environment_name
+  name = aws_batch_compute_environment.test.name
 }
 `, rName)
 }
@@ -153,7 +182,7 @@ data "aws_batch_compute_environment" "by_name" {
 func testAccComputeEnvironmentDataSourceConfig_updatePolicy(rName string, timeout int, terminate bool) string {
 	return acctest.ConfigCompose(testAccComputeEnvironmentConfig_baseDefaultSLR(rName), fmt.Sprintf(`
 resource "aws_batch_compute_environment" "test" {
-  compute_environment_name = %[1]q
+  name = %[1]q
 
   compute_resources {
     allocation_strategy = "BEST_FIT_PROGRESSIVE"
@@ -178,7 +207,24 @@ resource "aws_batch_compute_environment" "test" {
 }
 
 data "aws_batch_compute_environment" "by_name" {
-  compute_environment_name = aws_batch_compute_environment.test.compute_environment_name
+  name = aws_batch_compute_environment.test.name
 }
 `, rName, timeout, terminate))
+}
+
+func testAccComputeEnvironmentDataSourceConfig_unmanagedVCPUs(rName string, vcpus int) string {
+	return acctest.ConfigCompose(testAccComputeEnvironmentConfig_base(rName), fmt.Sprintf(`
+resource "aws_batch_compute_environment" "test" {
+  name = %[1]q
+
+  service_role    = aws_iam_role.batch_service.arn
+  type            = "UNMANAGED"
+  unmanaged_vcpus = %[2]d
+  depends_on      = [aws_iam_role_policy_attachment.batch_service]
+}
+
+data "aws_batch_compute_environment" "by_name" {
+  name = aws_batch_compute_environment.test.name
+}
+`, rName, vcpus))
 }

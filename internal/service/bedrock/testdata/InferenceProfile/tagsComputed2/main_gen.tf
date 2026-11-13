@@ -1,0 +1,44 @@
+# Copyright IBM Corp. 2014, 2026
+# SPDX-License-Identifier: MPL-2.0
+
+provider "null" {}
+
+resource "aws_bedrock_inference_profile" "test" {
+  name = var.rName
+
+  model_source {
+    copy_from = data.aws_bedrock_foundation_model.test.model_arn
+  }
+
+  tags = {
+    (var.unknownTagKey) = null_resource.test.id
+    (var.knownTagKey)   = var.knownTagValue
+  }
+}
+
+data "aws_bedrock_foundation_model" "test" {
+  model_id = "amazon.nova-lite-v1:0"
+}
+
+resource "null_resource" "test" {}
+
+variable "rName" {
+  description = "Name for resource"
+  type        = string
+  nullable    = false
+}
+
+variable "unknownTagKey" {
+  type     = string
+  nullable = false
+}
+
+variable "knownTagKey" {
+  type     = string
+  nullable = false
+}
+
+variable "knownTagValue" {
+  type     = string
+  nullable = false
+}

@@ -1,4 +1,4 @@
-# Copyright (c) HashiCorp, Inc.
+# Copyright IBM Corp. 2014, 2026
 # SPDX-License-Identifier: MPL-2.0
 
 variable "aws_region" {
@@ -30,7 +30,7 @@ variable "engine_version" {
 }
 
 variable "instance_class" {
-  default     = "db.t2.micro"
+  default     = "db.t4g.micro"
   description = "Instance class"
 }
 
